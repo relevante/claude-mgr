@@ -49,7 +49,9 @@ claude-mgr --dump   # headless: print the session index and exit
 
 | Key | Action |
 |-----|--------|
-| `↑`/`↓` (or `k`/`j`) | move selection |
+| `↑`/`↓` (or `k`/`j`) | move selection · **mouse wheel** scrolls too |
+| `Ctrl-d`/`Ctrl-u` (or `PgDn`/`PgUp`) | jump half a screen |
+| `g`/`G` | top / bottom |
 | `↵` | open the selected thread on the right (resumes it) |
 | `tab` / `→` | jump focus into the Claude pane to type |
 | `z` | zoom the Claude pane fullscreen / back (`Option+z` from either pane) |

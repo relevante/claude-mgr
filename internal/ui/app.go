@@ -233,6 +233,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = ""
 		return m, nil
 
+	case tea.MouseMsg:
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.moveBy(-1, 3)
+		case tea.MouseButtonWheelDown:
+			m.moveBy(1, 3)
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -258,6 +267,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveCursor(-1)
 	case "down", "j":
 		m.moveCursor(1)
+	case "ctrl+d", "pgdown":
+		m.moveBy(1, m.pageStep())
+	case "ctrl+u", "pgup":
+		m.moveBy(-1, m.pageStep())
 	case "g", "home":
 		m.cursor = m.firstSessionRow()
 		m.syncSelection()

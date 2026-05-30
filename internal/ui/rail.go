@@ -45,6 +45,21 @@ func (m *Model) moveCursor(d int) {
 	}
 }
 
+// moveBy steps the cursor n session-rows in direction dir (±1).
+func (m *Model) moveBy(dir, n int) {
+	for i := 0; i < n; i++ {
+		m.moveCursor(dir)
+	}
+}
+
+// pageStep is how far Ctrl-d/Ctrl-u (and PgUp/PgDn) jump — half a screen.
+func (m *Model) pageStep() int {
+	if s := m.viewportHeight() / 2; s > 1 {
+		return s
+	}
+	return 1
+}
+
 func (m *Model) firstSessionRow() int {
 	for i, r := range m.rows {
 		if r.kind == rowSession {
