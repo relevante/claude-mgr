@@ -23,8 +23,8 @@ var (
 	workStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("84"))             // working (green): Claude busy
 	attnStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))            // needs permission (red): your turn
 	idleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")) // open here, idle (bright white)
-	awayStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))            // running elsewhere (gray)
-	dormantStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))            // dormant (dim gray)
+	awayStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))            // running elsewhere (darker gray)
+	dormantStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("236"))            // dormant (dimmest gray)
 	// shownGutter marks the session shown on the right with a bar in the left
 	// gutter — not a background, and not a triangle (which means "working").
 	shownGutter = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231"))
