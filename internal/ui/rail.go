@@ -25,9 +25,9 @@ var (
 	idleStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("252")) // open here, idle (white)
 	awayStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("245")) // running elsewhere (gray)
 	dormantStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240")) // dormant (dim gray)
-	// shownRowStyle: subtle dark-green background marking the session on the
-	// right — distinct from the gray cursor highlight, not attention-grabbing.
-	shownRowStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(lipgloss.Color("22"))
+	// shownGutter marks the session shown on the right with a bar in the left
+	// gutter — not a background, and not a triangle (which means "working").
+	shownGutter = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231"))
 
 	inputStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(lipgloss.Color("24"))
 	detachConfirm = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("232")).Background(lipgloss.Color("220"))
@@ -193,7 +193,12 @@ func (m Model) renderRow(r row, selected bool, w int, now time.Time) string {
 		}
 	}
 
-	prefix := "  " + mark + " "
+	// Left gutter: a bar marks the session shown on the right.
+	gut := " "
+	if s.SessionID == m.shown {
+		gut = "▌"
+	}
+	prefix := gut + " " + mark + " "
 	avail := w - lipgloss.Width(prefix) - lipgloss.Width(meta) - 1
 	if avail < 4 {
 		avail = 4
@@ -207,16 +212,12 @@ func (m Model) renderRow(r row, selected bool, w int, now time.Time) string {
 	if pad < 1 {
 		pad = 1
 	}
-	content := prefix + title + strings.Repeat(" ", pad) + " " + meta
+	gap := strings.Repeat(" ", pad)
 
-	switch {
-	case selected:
-		return selStyle.Width(w).Render(content) // cursor (most prominent)
-	case s.SessionID == m.shown:
-		return shownRowStyle.Width(w).Render(content) // on the right (subtle)
-	default:
-		return markStyle.Render(prefix) + title + strings.Repeat(" ", pad) + " " + dimStyle.Render(meta)
+	if selected { // cursor highlight (gutter bar still shows if it's also shown)
+		return selStyle.Width(w).Render(prefix + title + gap + " " + meta)
 	}
+	return shownGutter.Render(gut) + " " + markStyle.Render(mark) + " " + title + gap + " " + dimStyle.Render(meta)
 }
 
 // projCap is the column budget for the inline project label in recent mode,
