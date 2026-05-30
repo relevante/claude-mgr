@@ -1,12 +1,17 @@
 package tmux
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"syscall"
 )
+
+// ErrNoSession is returned when an operation needs the right-hand session pane
+// but none is shown (e.g. it was just exited).
+var ErrNoSession = errors.New("no session pane shown")
 
 // SessionRef identifies a Claude session to show on the right.
 type SessionRef struct {
@@ -283,11 +288,16 @@ func SendSession(line string) error {
 	return run("send-keys", "-t", sess.ID, line, "Enter")
 }
 
-// CaptureSession returns the last n lines visible in the session pane.
+// CaptureSession returns the last n lines visible in the session pane, or
+// ErrNoSession if no session is shown (so callers don't mistake "no pane" for
+// "captured empty content").
 func CaptureSession(n int) (string, error) {
 	_, sess, has, err := layout()
-	if err != nil || !has {
+	if err != nil {
 		return "", err
+	}
+	if !has {
+		return "", ErrNoSession
 	}
 	return output("capture-pane", "-p", "-t", sess.ID, "-S", strconv.Itoa(-n))
 }

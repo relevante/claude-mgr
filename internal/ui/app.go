@@ -91,6 +91,7 @@ type Model struct {
 
 	wsPath   string          // workspace file path
 	openIDs  map[string]bool // sessions open in the dashboard this run
+	liveMiss map[string]int  // consecutive polls an open session went missing
 	restored bool            // workspace restore attempted
 
 	// Live state, refreshed by the status poller.
@@ -230,8 +231,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case statusMsg:
 		m.statusByID8 = msg.byID8
 		m.externalStatus = msg.external
-		if m.activeOnly {
-			m.rebuild() // liveness changed which rows qualify
+		reaped := m.reconcileLive() // clean up sessions exited inside the dashboard
+		if m.activeOnly || reaped {
+			m.rebuild()
 		}
 		return m, nil
 
@@ -479,6 +481,40 @@ func (m Model) showSelected() (tea.Model, tea.Cmd) {
 	m.status, c = flash("▶ " + m.displayName(s))
 	cmds = append(cmds, c)
 	return m, tea.Batch(cmds...)
+}
+
+// reconcileLive reaps sessions that exited inside the dashboard (e.g. /exit or
+// Ctrl-C closed their pane). A session is open iff it's live in our tmux (its
+// id8 appears in the captured status set). We require it to be missing for two
+// consecutive polls before dropping it, to tolerate a poll that raced a
+// just-opened session. Returns whether anything changed.
+func (m *Model) reconcileLive() bool {
+	if m.pendingNew != nil {
+		return false // a brand-new session is mid-launch; don't reap it
+	}
+	if m.liveMiss == nil {
+		m.liveMiss = map[string]int{}
+	}
+	changed := false
+	for id := range m.openIDs {
+		if _, ok := m.statusByID8[tmux.Short(id)]; ok {
+			delete(m.liveMiss, id)
+			continue
+		}
+		m.liveMiss[id]++
+		if m.liveMiss[id] >= 2 {
+			delete(m.openIDs, id)
+			delete(m.liveMiss, id)
+			if m.shown == id {
+				m.shown = ""
+			}
+			changed = true
+		}
+	}
+	if changed {
+		m.persistWorkspace()
+	}
+	return changed
 }
 
 // persistWorkspace saves the set of open sessions + the shown one.

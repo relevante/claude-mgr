@@ -25,9 +25,9 @@ var (
 	idleStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("252")) // open here, idle (white)
 	awayStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("245")) // running elsewhere (gray)
 	dormantStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240")) // dormant (dim gray)
-	// shownRowStyle: subtle dark-blue background marking the session on the
+	// shownRowStyle: subtle dark-green background marking the session on the
 	// right — distinct from the gray cursor highlight, not attention-grabbing.
-	shownRowStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(lipgloss.Color("17"))
+	shownRowStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(lipgloss.Color("22"))
 
 	inputStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(lipgloss.Color("24"))
 	detachConfirm = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("232")).Background(lipgloss.Color("220"))
