@@ -57,6 +57,11 @@ type SessionMeta struct {
 	FirstUserMsg string
 	AutoTitle    string
 
+	// ContextTokens is the size of the conversation context at the last
+	// assistant turn (input + cache creation + cache read), i.e. how full the
+	// model's context window is. 0 if the session has no assistant turn yet.
+	ContextTokens int
+
 	// File identity, used for (path,mtime,size) cache invalidation.
 	FileSize  int64
 	FileMtime time.Time

@@ -49,11 +49,7 @@ func configure() {
 		{"set-option", "-g", "pane-border-format", "#{?pane_active,#[fg=colour84]#[bold]▸ #{pane_title},#[fg=colour245]  #{pane_title}}"},
 		{"set-option", "-g", "pane-active-border-style", "fg=colour240"},
 		{"set-option", "-g", "pane-border-style", "fg=colour240"},
-		// Always reach the rail / session without the prefix. Meta+letter is
-		// sent reliably by Apple Terminal (with "Use Option as Meta"); the
-		// arrow variants are flakier there, so bind both.
-		{"bind-key", "-n", "M-h", "select-pane", "-L"},
-		{"bind-key", "-n", "M-l", "select-pane", "-R"},
+		// Option+arrows: ← to the rail/list, → to the Claude pane.
 		{"bind-key", "-n", "M-Left", "select-pane", "-L"},
 		{"bind-key", "-n", "M-Right", "select-pane", "-R"},
 		{"bind-key", "-n", "M-z", "resize-pane", "-Z"},

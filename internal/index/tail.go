@@ -32,6 +32,11 @@ type rawRecord struct {
 type rawMessage struct {
 	Role    string          `json:"role"`
 	Content json.RawMessage `json:"content"`
+	Usage   *struct {
+		InputTokens         int `json:"input_tokens"`
+		CacheCreationTokens int `json:"cache_creation_input_tokens"`
+		CacheReadTokens     int `json:"cache_read_input_tokens"`
+	} `json:"usage"`
 }
 
 // extractMeta fills the cheap metadata fields of m by reading the file tail,
@@ -127,6 +132,13 @@ func applyRecord(rec *rawRecord, m *SessionMeta, head bool) {
 		m.GitBranch = rec.GitBranch
 	}
 	switch rec.Type {
+	case "assistant":
+		if rec.Message != nil && rec.Message.Usage != nil {
+			u := rec.Message.Usage
+			if n := u.InputTokens + u.CacheCreationTokens + u.CacheReadTokens; n > 0 {
+				m.ContextTokens = n // last assistant turn wins
+			}
+		}
 	case "ai-title":
 		if rec.AiTitle != "" {
 			m.AiTitle = rec.AiTitle // last wins

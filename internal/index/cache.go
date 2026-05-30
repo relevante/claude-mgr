@@ -10,16 +10,17 @@ import (
 // cacheEntry is the persisted form of a session's cheap metadata, keyed by
 // absolute path. FileMtime is stored as Unix nanoseconds for stable equality.
 type cacheEntry struct {
-	SessionID    string `json:"sessionId"`
-	ProjectDir   string `json:"projectDir"`
-	Cwd          string `json:"cwd"`
-	GitBranch    string `json:"gitBranch"`
-	AiTitle      string `json:"aiTitle,omitempty"`
-	LastPrompt   string `json:"lastPrompt,omitempty"`
-	FirstUserMsg string `json:"firstUserMsg,omitempty"`
-	LastActive   int64  `json:"lastActive"` // unix nanos
-	FileSize     int64  `json:"fileSize"`
-	FileMtime    int64  `json:"fileMtime"` // unix nanos
+	SessionID     string `json:"sessionId"`
+	ProjectDir    string `json:"projectDir"`
+	Cwd           string `json:"cwd"`
+	GitBranch     string `json:"gitBranch"`
+	AiTitle       string `json:"aiTitle,omitempty"`
+	LastPrompt    string `json:"lastPrompt,omitempty"`
+	FirstUserMsg  string `json:"firstUserMsg,omitempty"`
+	LastActive    int64  `json:"lastActive"` // unix nanos
+	ContextTokens int    `json:"contextTokens"`
+	FileSize      int64  `json:"fileSize"`
+	FileMtime     int64  `json:"fileMtime"` // unix nanos
 }
 
 type cacheFile struct {
@@ -27,20 +28,21 @@ type cacheFile struct {
 	Entries map[string]cacheEntry `json:"entries"`
 }
 
-const cacheVersion = 1
+const cacheVersion = 2 // bumped: added ContextTokens
 
 func (e cacheEntry) toMeta(path string) SessionMeta {
 	m := SessionMeta{
-		SessionID:    e.SessionID,
-		Path:         path,
-		ProjectDir:   e.ProjectDir,
-		Cwd:          e.Cwd,
-		GitBranch:    e.GitBranch,
-		AiTitle:      e.AiTitle,
-		LastPrompt:   e.LastPrompt,
-		FirstUserMsg: e.FirstUserMsg,
-		FileSize:     e.FileSize,
-		FileMtime:    time.Unix(0, e.FileMtime),
+		SessionID:     e.SessionID,
+		Path:          path,
+		ProjectDir:    e.ProjectDir,
+		Cwd:           e.Cwd,
+		GitBranch:     e.GitBranch,
+		AiTitle:       e.AiTitle,
+		LastPrompt:    e.LastPrompt,
+		FirstUserMsg:  e.FirstUserMsg,
+		ContextTokens: e.ContextTokens,
+		FileSize:      e.FileSize,
+		FileMtime:     time.Unix(0, e.FileMtime),
 	}
 	if e.LastActive != 0 {
 		m.LastActive = time.Unix(0, e.LastActive)
@@ -55,16 +57,17 @@ func metaToEntry(m SessionMeta) cacheEntry {
 		la = m.LastActive.UnixNano()
 	}
 	return cacheEntry{
-		SessionID:    m.SessionID,
-		ProjectDir:   m.ProjectDir,
-		Cwd:          m.Cwd,
-		GitBranch:    m.GitBranch,
-		AiTitle:      m.AiTitle,
-		LastPrompt:   m.LastPrompt,
-		FirstUserMsg: m.FirstUserMsg,
-		LastActive:   la,
-		FileSize:     m.FileSize,
-		FileMtime:    m.FileMtime.UnixNano(),
+		SessionID:     m.SessionID,
+		ProjectDir:    m.ProjectDir,
+		Cwd:           m.Cwd,
+		GitBranch:     m.GitBranch,
+		AiTitle:       m.AiTitle,
+		LastPrompt:    m.LastPrompt,
+		FirstUserMsg:  m.FirstUserMsg,
+		LastActive:    la,
+		ContextTokens: m.ContextTokens,
+		FileSize:      m.FileSize,
+		FileMtime:     m.FileMtime.UnixNano(),
 	}
 }
 

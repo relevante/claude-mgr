@@ -29,6 +29,11 @@ var (
 	// gutter — not a background, and not a triangle (which means "working").
 	shownGutter = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231"))
 
+	// Context-fill pie: muted until it gets concerning.
+	pieLow   = lipgloss.NewStyle().Foreground(lipgloss.Color("66"))  // calm slate
+	pieAmber = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // ~75%+
+	pieRed   = lipgloss.NewStyle().Foreground(lipgloss.Color("203")) // ~90%+
+
 	inputStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(lipgloss.Color("24"))
 	detachConfirm = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("232")).Background(lipgloss.Color("220"))
 	quitConfirm   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(lipgloss.Color("160"))
@@ -193,13 +198,20 @@ func (m Model) renderRow(r row, selected bool, w int, now time.Time) string {
 		}
 	}
 
+	// Context-fill pie, shown just left of the time.
+	pie, pieStyle := contextPie(s)
+	rightPlain := meta
+	if pie != "" {
+		rightPlain = pie + " " + meta
+	}
+
 	// Left gutter: a bar marks the session shown on the right.
 	gut := " "
 	if s.SessionID == m.shown {
 		gut = "▌"
 	}
 	prefix := gut + " " + mark + " "
-	avail := w - lipgloss.Width(prefix) - lipgloss.Width(meta) - 1
+	avail := w - lipgloss.Width(prefix) - lipgloss.Width(rightPlain) - 1
 	if avail < 4 {
 		avail = 4
 	}
@@ -215,9 +227,42 @@ func (m Model) renderRow(r row, selected bool, w int, now time.Time) string {
 	gap := strings.Repeat(" ", pad)
 
 	if selected { // cursor highlight (gutter bar still shows if it's also shown)
-		return selStyle.Width(w).Render(prefix + title + gap + " " + meta)
+		return selStyle.Width(w).Render(prefix + title + gap + " " + rightPlain)
 	}
-	return shownGutter.Render(gut) + " " + markStyle.Render(mark) + " " + title + gap + " " + dimStyle.Render(meta)
+	rightRendered := dimStyle.Render(meta)
+	if pie != "" {
+		rightRendered = pieStyle.Render(pie) + " " + dimStyle.Render(meta)
+	}
+	return shownGutter.Render(gut) + " " + markStyle.Render(mark) + " " + title + gap + " " + rightRendered
+}
+
+// contextLimit is the assumed context-window size (tokens). The user runs 1M
+// context; configurable later.
+const contextLimit = 1_000_000
+
+// contextPie returns a quarter-filled circle for the session's context usage,
+// colored neutral → amber → red as it fills. Empty for sessions with no turn.
+func contextPie(s index.SessionMeta) (string, lipgloss.Style) {
+	if s.ContextTokens <= 0 {
+		return "", lipgloss.Style{}
+	}
+	frac := float64(s.ContextTokens) / contextLimit
+	if frac > 1 {
+		frac = 1
+	}
+	levels := []string{"○", "◔", "◑", "◕", "●"}
+	idx := int(frac*4 + 0.5)
+	if idx > 4 {
+		idx = 4
+	}
+	st := pieLow
+	switch {
+	case frac >= 0.90:
+		st = pieRed
+	case frac >= 0.75:
+		st = pieAmber
+	}
+	return levels[idx], st
 }
 
 // projCap is the column budget for the inline project label in recent mode,
