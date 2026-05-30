@@ -193,11 +193,19 @@ func pinRail() {
 	if err != nil || !has {
 		return
 	}
+	if isZoomed() {
+		return // don't fight an active zoom (rail or session fullscreen)
+	}
 	w := RailWidth
 	if ww := windowWidth(); ww > 0 && w > ww/2 {
 		w = ww / 2
 	}
 	_ = run("resize-pane", "-t", ctrl.ID, "-x", strconv.Itoa(w))
+}
+
+func isZoomed() bool {
+	z, err := output("display-message", "-p", "-t", mainTarget(), "#{window_zoomed_flag}")
+	return err == nil && z == "1"
 }
 
 // RePin re-applies the rail width; called by the controller on every resize so
