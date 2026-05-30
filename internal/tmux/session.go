@@ -42,11 +42,12 @@ func configure() {
 		{"set-option", "-g", "escape-time", "10"},
 		{"set-option", "-g", "history-limit", "50000"},
 		{"set-option", "-g", "base-index", "0"},
-		// Labeled pane headers so the ACTIVE pane is unambiguous (the shared
-		// border alone can't show which side is active).
+		// Labeled pane headers. The active indicator lives ONLY in the green
+		// header text — both border lines (incl. the vertical divider) stay a
+		// constant gray, so the divider doesn't flip color as focus moves.
 		{"set-option", "-g", "pane-border-status", "top"},
-		{"set-option", "-g", "pane-border-format", "#{?pane_active,▶ ,  }#{pane_title}"},
-		{"set-option", "-g", "pane-active-border-style", "fg=green,bold"},
+		{"set-option", "-g", "pane-border-format", "#{?pane_active,#[fg=colour84]#[bold]▸ #{pane_title},#[fg=colour245]  #{pane_title}}"},
+		{"set-option", "-g", "pane-active-border-style", "fg=colour240"},
 		{"set-option", "-g", "pane-border-style", "fg=colour240"},
 		// Always reach the rail / session without the prefix. Meta+letter is
 		// sent reliably by Apple Terminal (with "Use Option as Meta"); the
