@@ -143,16 +143,15 @@ func LaunchNew(cwd, tmpID, current string) error {
 	} else if hasSess {
 		_ = run("kill-pane", "-t", sess.ID)
 	}
-	win := parkedName(tmpID)
-	if err := run("new-window", "-d", "-n", win, "-c", cwd, newClaudeCmd()); err != nil {
+	// Split a new pane directly into the main window, right of the controller —
+	// atomic, with no detached-window/join-pane race that can drop a
+	// fast-exiting session. tmpID is used by the caller for tracking/parking.
+	_ = tmpID
+	if err := run("split-window", "-h", "-t", ctrl.ID, "-c", cwd, newClaudeCmd()); err != nil {
 		return err
 	}
-	if !windowExists(win) {
-		// The command exited instantly, so tmux destroyed the empty window.
+	if _, _, has, _ := layout(); !has {
 		return errors.New("session exited immediately — is 'claude' on PATH and the directory valid?")
-	}
-	if err := run("join-pane", "-h", "-s", Session+":"+win+".0", "-t", ctrl.ID); err != nil {
-		return err
 	}
 	pinRail()
 	return nil
