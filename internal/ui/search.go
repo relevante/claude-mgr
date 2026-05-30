@@ -140,9 +140,14 @@ func (m *Model) searchRows() []row {
 // launchNew opens a brand-new claude in cwd and records a pending adoption so
 // the real session id can be bound once Claude writes its transcript.
 func (m Model) launchNew(cwd string) (tea.Model, tea.Cmd) {
-	cwd = strings.TrimSpace(cwd)
+	cwd = expandHome(strings.TrimSpace(cwd))
 	if cwd == "" {
 		return m, nil
+	}
+	if fi, err := os.Stat(cwd); err != nil || !fi.IsDir() {
+		var c tea.Cmd
+		m.status, c = flash("no such directory: " + cwd)
+		return m, c
 	}
 	tmpID := "new" + itoa(time.Now().UnixNano())
 	_ = tmux.Unzoom() // launching returns to the split
@@ -193,6 +198,16 @@ func (m *Model) reconcilePendingNew() tea.Cmd {
 	var c tea.Cmd
 	m.status, c = flash("▶ " + m.displayName(best))
 	return c
+}
+
+// expandHome expands a leading ~ to the user's home directory.
+func expandHome(p string) string {
+	if strings.HasPrefix(p, "~") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return home + strings.TrimPrefix(p, "~")
+		}
+	}
+	return p
 }
 
 // completeDirPath does shell-style Tab completion of a directory path: a single

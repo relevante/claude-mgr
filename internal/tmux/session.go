@@ -147,6 +147,10 @@ func LaunchNew(cwd, tmpID, current string) error {
 	if err := run("new-window", "-d", "-n", win, "-c", cwd, newClaudeCmd()); err != nil {
 		return err
 	}
+	if !windowExists(win) {
+		// The command exited instantly, so tmux destroyed the empty window.
+		return errors.New("session exited immediately — is 'claude' on PATH and the directory valid?")
+	}
 	if err := run("join-pane", "-h", "-s", Session+":"+win+".0", "-t", ctrl.ID); err != nil {
 		return err
 	}
