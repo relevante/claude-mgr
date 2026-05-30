@@ -113,11 +113,14 @@ func ShowSession(target SessionRef, current string) (created bool, err error) {
 // claudeCmd is the shell command that resumes a session in a pane. It can be
 // overridden via CLAUDE_MGR_CLAUDE_CMD (a template with {id}) for testing
 // without spawning a real claude.
+// claudeCmd resumes a session. `exec` so the pane's pid IS the claude process —
+// lets us read the pane's current session id from Claude's process registry
+// (which matters when /clear changes the id under us).
 func claudeCmd(sessionID string) string {
 	if tmpl := os.Getenv("CLAUDE_MGR_CLAUDE_CMD"); tmpl != "" {
 		return strings.NewReplacer("{id}", sessionID).Replace(tmpl)
 	}
-	return "claude --resume " + sessionID
+	return "exec claude --resume " + sessionID
 }
 
 // newClaudeCmd starts a brand-new session (no resume).
@@ -125,7 +128,25 @@ func newClaudeCmd() string {
 	if tmpl := os.Getenv("CLAUDE_MGR_CLAUDE_CMD"); tmpl != "" {
 		return strings.NewReplacer("{id}", "new").Replace(tmpl)
 	}
-	return "claude"
+	return "exec claude"
+}
+
+// SessionPanePID returns the pid of the process in the shown session pane (the
+// claude process, thanks to exec).
+func SessionPanePID() (int, bool) {
+	_, sess, has, err := layout()
+	if err != nil || !has {
+		return 0, false
+	}
+	out, err := output("display-message", "-p", "-t", sess.ID, "#{pane_pid}")
+	if err != nil {
+		return 0, false
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 // LaunchNew opens a brand-new claude in cwd on the right, parking whatever is

@@ -142,9 +142,10 @@ type fullscreenMsg struct{ id string }
 type statusClearMsg struct{}
 type statusTickMsg struct{}
 type statusMsg struct {
-	byID8    map[string]index.Status
-	external map[string]string // id → "busy"/"idle" for sessions live elsewhere
-	resume   map[string]string // id8 → paneID showing the resume summary/full prompt
+	byID8       map[string]index.Status
+	external    map[string]string // id → "busy"/"idle" for sessions live elsewhere
+	resume      map[string]string // id8 → paneID showing the resume summary/full prompt
+	shownActual string            // the shown pane's current session id (may differ after /clear)
 }
 
 const statusEvery = 800 * time.Millisecond
@@ -184,7 +185,13 @@ func pollStatus(store *index.Store, shown string) tea.Cmd {
 				external[id] = st
 			}
 		}
-		return statusMsg{byID8: byID8, external: external, resume: resume}
+		shownActual := ""
+		if shown != "" {
+			if pid, ok := tmux.SessionPanePID(); ok {
+				shownActual = live.SessionForPID(store.ProjectsDir, pid)
+			}
+		}
+		return statusMsg{byID8: byID8, external: external, resume: resume, shownActual: shownActual}
 	}
 }
 
@@ -249,6 +256,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.markCompleted(msg.byID8) // background working→idle = "done, go check" (green)
 		m.statusByID8 = msg.byID8
 		m.externalStatus = msg.external
+		m.adoptShownID(msg.shownActual)          // /clear changed the shown session's id
 		answer := m.autoAnswerResume(msg.resume) // pick "full session as-is"
 		reaped := m.reconcileLive()              // clean up sessions exited inside the dashboard
 		if m.activeOnly || reaped {
@@ -516,6 +524,27 @@ func (m Model) showSelected() (tea.Model, tea.Cmd) {
 	m.status, c = flash("▶ " + m.displayName(s))
 	cmds = append(cmds, c)
 	return m, tea.Batch(cmds...)
+}
+
+// adoptShownID re-points tracking when the shown pane's session id changed
+// underneath us (e.g. /clear started a fresh session in the same process). The
+// old id becomes a normal dormant entry; the new one is the shown session — no
+// duplicate. Skipped during a pending new-session launch (handled separately).
+func (m *Model) adoptShownID(actual string) {
+	if actual == "" || m.shown == "" || actual == m.shown || m.pendingNew != nil {
+		return
+	}
+	old := m.shown
+	m.shown = actual
+	delete(m.openIDs, old)
+	m.openIDs[actual] = true
+	if st, ok := m.statusByID8[tmux.Short(old)]; ok {
+		m.statusByID8[tmux.Short(actual)] = st // same pane, carry its status to the new id
+	}
+	delete(m.doneIDs, tmux.Short(old))
+	delete(m.liveMiss, old)
+	m.persistWorkspace()
+	m.rebuild()
 }
 
 // markCompleted flags a session that just went from working to idle while it

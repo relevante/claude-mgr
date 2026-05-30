@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"syscall"
 )
 
@@ -44,6 +45,21 @@ func Statuses(projectsDir string) map[string]string {
 		}
 	}
 	return out
+}
+
+// SessionForPID returns the session id a given pid is currently running,
+// straight from its registry file (reflects /clear immediately). "" if unknown.
+func SessionForPID(projectsDir string, pid int) string {
+	dir := filepath.Join(filepath.Dir(projectsDir), "sessions")
+	raw, err := os.ReadFile(filepath.Join(dir, strconv.Itoa(pid)+".json"))
+	if err != nil {
+		return ""
+	}
+	var r record
+	if json.Unmarshal(raw, &r) != nil {
+		return ""
+	}
+	return r.SessionID
 }
 
 func readRegistry(projectsDir string) []record {
