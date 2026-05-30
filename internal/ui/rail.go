@@ -20,12 +20,14 @@ var (
 
 	// Status dots — color encodes WHERE (your dashboard = colored, elsewhere =
 	// gray), glyph + color encode WHAT. See statusMark.
-	workStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("84"))  // working (green): Claude busy
-	attnStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("203")) // your turn (red): waiting / permission
-	idleStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("252")) // open here, idle (white)
-	awayStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("245")) // running elsewhere (gray)
-	dormantStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240")) // dormant (dim gray)
-	shownTriStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("84"))
+	workStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("84"))  // working (green): Claude busy
+	attnStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("203")) // your turn (red): waiting / permission
+	idleStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("252")) // open here, idle (white)
+	awayStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("245")) // running elsewhere (gray)
+	dormantStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240")) // dormant (dim gray)
+	// shownRowStyle: subtle dark-blue background marking the session on the
+	// right — distinct from the gray cursor highlight, not attention-grabbing.
+	shownRowStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(lipgloss.Color("17"))
 
 	inputStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(lipgloss.Color("24"))
 	detachConfirm = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("232")).Background(lipgloss.Color("220"))
@@ -181,23 +183,18 @@ func (m Model) renderRow(r row, selected bool, w int, now time.Time) string {
 	mark, markStyle := m.statusMark(s)
 
 	// Right-side meta: relative time, prefixed with the project in recent mode
-	// (which has no group headers to show it).
-	meta := index.RelTime(s.LastActive, now)
+	// (which has no group headers to show it). The project is reverse-truncated
+	// so the most specific tail of the path survives.
+	rel := index.RelTime(s.LastActive, now)
+	meta := rel
 	if m.sortRecent && m.query == "" {
 		if p := s.ProjectLabel(); p != "" {
-			meta = truncate(p, 14) + " · " + meta
+			meta = truncateLeft(p, projCap(w)) + " · " + rel
 		}
 	}
 
-	// Trailing outline triangle marks the session shown in the right pane,
-	// pointing toward the main view. Independent of the status dot.
-	suffix := ""
-	if s.SessionID == m.shown {
-		suffix = " ▷"
-	}
-
 	prefix := "  " + mark + " "
-	avail := w - lipgloss.Width(prefix) - lipgloss.Width(meta) - lipgloss.Width(suffix) - 1
+	avail := w - lipgloss.Width(prefix) - lipgloss.Width(meta) - 1
 	if avail < 4 {
 		avail = 4
 	}
@@ -210,18 +207,35 @@ func (m Model) renderRow(r row, selected bool, w int, now time.Time) string {
 	if pad < 1 {
 		pad = 1
 	}
-	gap := strings.Repeat(" ", pad)
+	content := prefix + title + strings.Repeat(" ", pad) + " " + meta
 
-	if selected {
-		return selStyle.Width(w).Render(prefix + title + gap + " " + meta + suffix)
+	switch {
+	case selected:
+		return selStyle.Width(w).Render(content) // cursor (most prominent)
+	case s.SessionID == m.shown:
+		return shownRowStyle.Width(w).Render(content) // on the right (subtle)
+	default:
+		return markStyle.Render(prefix) + title + strings.Repeat(" ", pad) + " " + dimStyle.Render(meta)
 	}
-	return markStyle.Render(prefix) + title + gap + " " + dimStyle.Render(meta) + shownTriStyle.Render(suffix)
+}
+
+// projCap is the column budget for the inline project label in recent mode,
+// scaled to the rail width so it isn't needlessly truncated when there's room.
+func projCap(w int) int {
+	c := w / 3
+	if c < 12 {
+		c = 12
+	}
+	if c > 30 {
+		c = 30
+	}
+	return c
 }
 
 // statusMark chooses the status glyph + style for a session. Color encodes
 // WHERE it runs (your dashboard = colored, another terminal = gray, nowhere =
 // dim hollow); glyph + color encode WHAT it's doing. "Shown on the right" is a
-// separate trailing ▷ in renderRow, so status stays visible for that row too.
+// separate row background (renderRow), so status stays visible for that row too.
 func (m Model) statusMark(s index.SessionMeta) (string, lipgloss.Style) {
 	// In your dashboard: colored, from real captured status.
 	if st, ok := m.statusByID8[tmux.Short(s.SessionID)]; ok {
@@ -262,6 +276,22 @@ func (m Model) footer(w int) string {
 	}
 	help := "↵ open · / find · s recent · f active · r name · n new · q detach · Q quit"
 	return footStyle.Render(truncate(help, w))
+}
+
+// truncateLeft shortens s to at most w columns by dropping from the FRONT,
+// keeping the tail (e.g. "…/sensorpush-sensor-esp") where the detail lives.
+func truncateLeft(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= w {
+		return s
+	}
+	r := []rune(s)
+	for len(r) > 0 && lipgloss.Width(string(r))+1 > w {
+		r = r[1:]
+	}
+	return "…" + string(r)
 }
 
 // truncate shortens s to at most w display columns, adding an ellipsis.
