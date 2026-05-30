@@ -1,0 +1,8 @@
+# build output
+/bin/
+*.test
+
+# editor/OS cruft
+.DS_Store
+
+# runtime state lives in ~/.config/claude-mgr, never in the repo

@@ -1,0 +1,318 @@
+package tmux
+
+import (
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"syscall"
+)
+
+// SessionRef identifies a Claude session to show on the right.
+type SessionRef struct {
+	ID  string // claude sessionId
+	Cwd string // working directory to launch/resume in
+}
+
+// EnsureSession starts our tmux server + main window (controller in the only
+// pane) if not already running. controllerCmd is the shell command that runs
+// the rail UI (e.g. "/path/to/claude-mgr __controller").
+func EnsureSession(controllerCmd string) error {
+	if ServerUp() {
+		return nil
+	}
+	if err := run("new-session", "-d", "-s", Session, "-n", MainWindow, controllerCmd); err != nil {
+		return err
+	}
+	configure()
+	return nil
+}
+
+// configure applies global options and pane-navigation bindings. Best-effort:
+// individual failures are ignored so an odd tmux build can't block startup.
+func configure() {
+	opts := [][]string{
+		{"set-option", "-g", "mouse", "on"},
+		{"set-option", "-g", "status", "off"},
+		{"set-option", "-g", "escape-time", "10"},
+		{"set-option", "-g", "history-limit", "50000"},
+		{"set-option", "-g", "base-index", "0"},
+		// Labeled pane headers so the ACTIVE pane is unambiguous (the shared
+		// border alone can't show which side is active).
+		{"set-option", "-g", "pane-border-status", "top"},
+		{"set-option", "-g", "pane-border-format", "#{?pane_active,▶ ,  }#{pane_title}"},
+		{"set-option", "-g", "pane-active-border-style", "fg=green,bold"},
+		{"set-option", "-g", "pane-border-style", "fg=colour240"},
+		// Always reach the rail / session without the prefix. Meta+letter is
+		// sent reliably by Apple Terminal (with "Use Option as Meta"); the
+		// arrow variants are flakier there, so bind both.
+		{"bind-key", "-n", "M-h", "select-pane", "-L"},
+		{"bind-key", "-n", "M-l", "select-pane", "-R"},
+		{"bind-key", "-n", "M-Left", "select-pane", "-L"},
+		{"bind-key", "-n", "M-Right", "select-pane", "-R"},
+		{"bind-key", "-n", "M-z", "resize-pane", "-Z"},
+	}
+	for _, o := range opts {
+		_ = run(o...)
+	}
+}
+
+// windowExists reports whether a window with the given name exists.
+func windowExists(name string) bool {
+	out, err := output("list-windows", "-t", Session, "-F", "#{window_name}")
+	if err != nil {
+		return false
+	}
+	for _, w := range splitLines(out) {
+		if w == name {
+			return true
+		}
+	}
+	return false
+}
+
+// ShowSession makes target the visible right-hand pane. current is the id of
+// the session presently shown ("" if none). Returns whether the target was
+// freshly launched (so the caller can send "/tui fullscreen" after it boots).
+func ShowSession(target SessionRef, current string) (created bool, err error) {
+	if target.ID == current && current != "" {
+		return false, nil // already showing it
+	}
+	ctrl, sess, hasSess, err := layout()
+	if err != nil {
+		return false, err
+	}
+	// Park whatever is currently shown, preserving its process + scrollback.
+	if hasSess && current != "" {
+		if err := run("break-pane", "-d", "-s", sess.ID, "-n", parkedName(current)); err != nil {
+			return false, err
+		}
+	} else if hasSess {
+		// Unknown occupant (shouldn't happen): kill it to reclaim the slot.
+		_ = run("kill-pane", "-t", sess.ID)
+	}
+
+	parked := parkedName(target.ID)
+	if !windowExists(parked) {
+		if err := run("new-window", "-d", "-n", parked, "-c", target.Cwd, claudeCmd(target.ID)); err != nil {
+			return false, err
+		}
+		created = true
+	}
+	if err := run("join-pane", "-h", "-s", Session+":"+parked+".0", "-t", ctrl.ID); err != nil {
+		return created, err
+	}
+	pinRail()
+	return created, nil
+}
+
+// claudeCmd is the shell command that resumes a session in a pane. It can be
+// overridden via CLAUDE_MGR_CLAUDE_CMD (a template with {id}) for testing
+// without spawning a real claude.
+func claudeCmd(sessionID string) string {
+	if tmpl := os.Getenv("CLAUDE_MGR_CLAUDE_CMD"); tmpl != "" {
+		return strings.NewReplacer("{id}", sessionID).Replace(tmpl)
+	}
+	return "claude --resume " + sessionID
+}
+
+// newClaudeCmd starts a brand-new session (no resume).
+func newClaudeCmd() string {
+	if tmpl := os.Getenv("CLAUDE_MGR_CLAUDE_CMD"); tmpl != "" {
+		return strings.NewReplacer("{id}", "new").Replace(tmpl)
+	}
+	return "claude"
+}
+
+// LaunchNew opens a brand-new claude in cwd on the right, parking whatever is
+// currently shown. tmpID is a placeholder id; its parked window name is used so
+// the session can later be adopted (renamed) once its real id is known.
+func LaunchNew(cwd, tmpID, current string) error {
+	ctrl, sess, hasSess, err := layout()
+	if err != nil {
+		return err
+	}
+	if hasSess && current != "" {
+		if err := run("break-pane", "-d", "-s", sess.ID, "-n", parkedName(current)); err != nil {
+			return err
+		}
+	} else if hasSess {
+		_ = run("kill-pane", "-t", sess.ID)
+	}
+	win := parkedName(tmpID)
+	if err := run("new-window", "-d", "-n", win, "-c", cwd, newClaudeCmd()); err != nil {
+		return err
+	}
+	if err := run("join-pane", "-h", "-s", Session+":"+win+".0", "-t", ctrl.ID); err != nil {
+		return err
+	}
+	pinRail()
+	return nil
+}
+
+// RestoreParked recreates parked windows for a set of sessions (resuming each)
+// without showing them. Used on startup to rebuild a saved workspace. Existing
+// windows are left alone.
+func RestoreParked(refs []SessionRef) {
+	for _, r := range refs {
+		win := parkedName(r.ID)
+		if windowExists(win) {
+			continue
+		}
+		_ = run("new-window", "-d", "-n", win, "-c", r.Cwd, claudeCmd(r.ID))
+	}
+}
+
+// Detach detaches all clients from our session, leaving the dashboard (and all
+// its sessions) running in the background to be re-attached later.
+func Detach() error {
+	return run("detach-client", "-s", Session)
+}
+
+// AdoptParked renames a parked placeholder window to the real session's name,
+// so future park/join and status polling address it correctly. No-op if the
+// placeholder window doesn't exist (the session is currently shown instead).
+func AdoptParked(tmpID, realID string) {
+	from, to := parkedName(tmpID), parkedName(realID)
+	if windowExists(from) {
+		_ = run("rename-window", "-t", Session+":"+from, to)
+	}
+}
+
+// pinRail fixes the controller pane to RailWidth columns, clamped so it never
+// exceeds half the window (keeps it usable when a large font leaves few cols).
+// A no-op when no session is shown (the rail is full-width then).
+func pinRail() {
+	ctrl, _, has, err := layout()
+	if err != nil || !has {
+		return
+	}
+	w := RailWidth
+	if ww := windowWidth(); ww > 0 && w > ww/2 {
+		w = ww / 2
+	}
+	_ = run("resize-pane", "-t", ctrl.ID, "-x", strconv.Itoa(w))
+}
+
+// RePin re-applies the rail width; called by the controller on every resize so
+// font-size changes don't let tmux shrink the rail proportionally.
+func RePin() { pinRail() }
+
+func windowWidth() int {
+	out, err := output("display-message", "-p", "-t", mainTarget(), "#{window_width}")
+	if err != nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(out)
+	return n
+}
+
+// Unzoom clears the window's zoom if set, returning to the split (rail visible).
+func Unzoom() error {
+	z, err := output("display-message", "-p", "-t", mainTarget(), "#{window_zoomed_flag}")
+	if err == nil && z == "1" {
+		return run("resize-pane", "-Z", "-t", mainTarget())
+	}
+	return nil
+}
+
+// Zoom toggles fullscreen on the session pane (hides the rail).
+func Zoom() error {
+	_, sess, has, err := layout()
+	if err != nil || !has {
+		return err
+	}
+	return run("resize-pane", "-Z", "-t", sess.ID)
+}
+
+// FocusSession / FocusController move keyboard focus between the panes.
+func FocusSession() error {
+	_, sess, has, err := layout()
+	if err != nil || !has {
+		return err
+	}
+	return run("select-pane", "-t", sess.ID)
+}
+
+func FocusController() error {
+	ctrl, _, _, err := layout()
+	if err != nil {
+		return err
+	}
+	return run("select-pane", "-t", ctrl.ID)
+}
+
+// SetControllerTitle labels the rail pane (shown in its header).
+func SetControllerTitle(title string) error {
+	pane := os.Getenv("TMUX_PANE")
+	if pane == "" {
+		return nil
+	}
+	return run("select-pane", "-t", pane, "-T", title)
+}
+
+// SetSessionTitle labels the currently-shown session pane (shown in its header).
+func SetSessionTitle(title string) error {
+	_, sess, has, err := layout()
+	if err != nil || !has {
+		return err
+	}
+	return run("select-pane", "-t", sess.ID, "-T", title)
+}
+
+// SendSession types a command line into the session pane, followed by Enter.
+func SendSession(line string) error {
+	_, sess, has, err := layout()
+	if err != nil || !has {
+		return err
+	}
+	return run("send-keys", "-t", sess.ID, line, "Enter")
+}
+
+// CaptureSession returns the last n lines visible in the session pane.
+func CaptureSession(n int) (string, error) {
+	_, sess, has, err := layout()
+	if err != nil || !has {
+		return "", err
+	}
+	return output("capture-pane", "-p", "-t", sess.ID, "-S", strconv.Itoa(-n))
+}
+
+// CapturePane returns the last n lines of a specific pane id.
+func CapturePane(paneID string, n int) (string, error) {
+	return output("capture-pane", "-p", "-t", paneID, "-S", strconv.Itoa(-n))
+}
+
+// Attach replaces the current process with a tmux client attached to our
+// session. Used by the launcher after EnsureSession.
+func Attach() error {
+	path, err := exec.LookPath("tmux")
+	if err != nil {
+		return err
+	}
+	argv := []string{"tmux", "-L", Socket, "attach", "-t", Session}
+	return syscall.Exec(path, argv, os.Environ())
+}
+
+func splitLines(s string) []string {
+	var out []string
+	for _, l := range splitOnNewline(s) {
+		if l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+func splitOnNewline(s string) []string {
+	var lines []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			lines = append(lines, s[start:i])
+			start = i + 1
+		}
+	}
+	lines = append(lines, s[start:])
+	return lines
+}
