@@ -179,7 +179,15 @@ func (m Model) renderRow(r row, selected bool, w int, now time.Time) string {
 	}
 	s := r.sess
 	mark, markStyle := m.statusMark(s)
-	rel := index.RelTime(s.LastActive, now)
+
+	// Right-side meta: relative time, prefixed with the project in recent mode
+	// (which has no group headers to show it).
+	meta := index.RelTime(s.LastActive, now)
+	if m.sortRecent && m.query == "" {
+		if p := s.ProjectLabel(); p != "" {
+			meta = truncate(p, 14) + " · " + meta
+		}
+	}
 
 	// Trailing outline triangle marks the session shown in the right pane,
 	// pointing toward the main view. Independent of the status dot.
@@ -189,7 +197,7 @@ func (m Model) renderRow(r row, selected bool, w int, now time.Time) string {
 	}
 
 	prefix := "  " + mark + " "
-	avail := w - lipgloss.Width(prefix) - lipgloss.Width(rel) - lipgloss.Width(suffix) - 1
+	avail := w - lipgloss.Width(prefix) - lipgloss.Width(meta) - lipgloss.Width(suffix) - 1
 	if avail < 4 {
 		avail = 4
 	}
@@ -205,9 +213,9 @@ func (m Model) renderRow(r row, selected bool, w int, now time.Time) string {
 	gap := strings.Repeat(" ", pad)
 
 	if selected {
-		return selStyle.Width(w).Render(prefix + title + gap + " " + rel + suffix)
+		return selStyle.Width(w).Render(prefix + title + gap + " " + meta + suffix)
 	}
-	return markStyle.Render(prefix) + title + gap + " " + dimStyle.Render(rel) + shownTriStyle.Render(suffix)
+	return markStyle.Render(prefix) + title + gap + " " + dimStyle.Render(meta) + shownTriStyle.Render(suffix)
 }
 
 // statusMark chooses the status glyph + style for a session. Color encodes
@@ -252,7 +260,7 @@ func (m Model) footer(w int) string {
 	if m.status != "" {
 		return footStyle.Render(truncate(m.status, w))
 	}
-	help := "↵ open · / find · f active · r name · n new · z zoom · q detach · Q quit"
+	help := "↵ open · / find · s recent · f active · r name · n new · q detach · Q quit"
 	return footStyle.Render(truncate(help, w))
 }
 

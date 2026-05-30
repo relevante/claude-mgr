@@ -82,6 +82,7 @@ type Model struct {
 	hideEmpty    bool
 	showArchived bool
 	activeOnly   bool        // show only sessions with live activity
+	sortRecent   bool        // flat, recency-sorted across projects (vs grouped)
 	confirmQuit  pendingQuit // a detach/quit awaiting confirmation
 	status       string      // transient status line
 	err          error
@@ -338,6 +339,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status, c = flash("filter: active only")
 		} else {
 			m.status, c = flash("filter: all sessions")
+		}
+		m.rebuild()
+		return m, c
+	case "s":
+		m.sortRecent = !m.sortRecent
+		var c tea.Cmd
+		if m.sortRecent {
+			m.status, c = flash("sort: recent activity")
+		} else {
+			m.status, c = flash("sort: by project")
 		}
 		m.rebuild()
 		return m, c

@@ -51,9 +51,12 @@ func (m *Model) isLive(s index.SessionMeta) bool {
 // session. When searching, results are a single fuzzy-ranked list (no groups);
 // otherwise sessions are grouped by project, pinned ones first.
 func (m *Model) rebuild() {
-	if strings.TrimSpace(m.query) != "" {
+	switch {
+	case strings.TrimSpace(m.query) != "":
 		m.rows = m.searchRows()
-	} else {
+	case m.sortRecent:
+		m.rows = m.recentRows()
+	default:
 		m.rows = m.groupedRows()
 	}
 	if c := m.rowForID(m.selID); c >= 0 {
@@ -90,6 +93,24 @@ func (m *Model) groupedRows() []row {
 		for _, s := range g.Sessions {
 			rows = append(rows, row{kind: rowSession, sess: s})
 		}
+	}
+	return rows
+}
+
+// recentRows is a flat list of all visible sessions across projects, newest
+// first (m.all is already recency-sorted by the index). Rows show their project
+// inline since there are no group headers.
+func (m *Model) recentRows() []row {
+	var ss []index.SessionMeta
+	for _, s := range m.all {
+		if m.visible(s) {
+			ss = append(ss, s)
+		}
+	}
+	rows := make([]row, 0, len(ss)+1)
+	rows = append(rows, row{kind: rowHeader, label: "⟳ recent activity", count: len(ss)})
+	for _, s := range ss {
+		rows = append(rows, row{kind: rowSession, sess: s})
 	}
 	return rows
 }
