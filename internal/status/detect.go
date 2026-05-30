@@ -45,6 +45,12 @@ func (m Markers) Classify(paneText string) index.Status {
 	return index.StatusIdle
 }
 
+// IsResumePrompt reports whether the pane is showing Claude's "resume from
+// summary vs full session" choice (offered when resuming a large session).
+func IsResumePrompt(paneText string) bool {
+	return strings.Contains(paneText, "Resume full session as-is")
+}
+
 func anyContains(s string, subs []string) bool {
 	for _, sub := range subs {
 		if strings.Contains(s, sub) {

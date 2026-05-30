@@ -271,7 +271,7 @@ func BindLoadKeys() {
 	if pane == "" {
 		return
 	}
-	for _, k := range []string{"M-j", "M-k", "M-Down", "M-Up"} {
+	for _, k := range []string{"M-Down", "M-Up"} {
 		_ = run("bind-key", "-n", k, "send-keys", "-t", pane, k)
 	}
 }
@@ -301,6 +301,21 @@ func SendSession(line string) error {
 		return err
 	}
 	return run("send-keys", "-t", sess.ID, line, "Enter")
+}
+
+// SessionPaneID returns the pane id of the currently-shown session, if any.
+func SessionPaneID() (string, bool) {
+	_, sess, has, err := layout()
+	if err != nil || !has {
+		return "", false
+	}
+	return sess.ID, true
+}
+
+// SendPaneKeys sends key(s) to a specific pane (tmux key names, e.g. "2",
+// "Enter", "Down").
+func SendPaneKeys(paneID string, keys ...string) error {
+	return run(append([]string{"send-keys", "-t", paneID}, keys...)...)
 }
 
 // CaptureSession returns the last n lines visible in the session pane, or

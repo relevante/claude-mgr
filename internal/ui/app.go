@@ -89,10 +89,11 @@ type Model struct {
 
 	pendingNew *pendingNew // a just-launched session awaiting id discovery
 
-	wsPath   string          // workspace file path
-	openIDs  map[string]bool // sessions open in the dashboard this run
-	liveMiss map[string]int  // consecutive polls an open session went missing
-	restored bool            // workspace restore attempted
+	wsPath         string           // workspace file path
+	openIDs        map[string]bool  // sessions open in the dashboard this run
+	liveMiss       map[string]int   // consecutive polls an open session went missing
+	answeredResume map[string]int64 // id8 → unix-ms we last auto-answered its resume prompt
+	restored       bool             // workspace restore attempted
 
 	// Live state, refreshed by the status poller.
 	statusByID8    map[string]index.Status // sessions running in our tmux (from capture-pane)
@@ -141,6 +142,7 @@ type statusTickMsg struct{}
 type statusMsg struct {
 	byID8    map[string]index.Status
 	external map[string]string // id → "busy"/"idle" for sessions live elsewhere
+	resume   map[string]string // id8 → paneID showing the resume summary/full prompt
 }
 
 const statusEvery = 800 * time.Millisecond
@@ -154,15 +156,24 @@ func statusTick() tea.Cmd {
 func pollStatus(store *index.Store, shown string) tea.Cmd {
 	return func() tea.Msg {
 		byID8 := map[string]index.Status{}
+		resume := map[string]string{}
 		if parked, err := tmux.ParkedPanes(); err == nil {
 			for _, p := range parked {
 				txt, _ := tmux.CapturePane(p.PaneID, 8)
 				byID8[p.ID8] = status.Classify(txt)
+				if status.IsResumePrompt(txt) {
+					resume[p.ID8] = p.PaneID
+				}
 			}
 		}
 		if shown != "" {
 			if txt, err := tmux.CaptureSession(8); err == nil {
 				byID8[tmux.Short(shown)] = status.Classify(txt)
+				if status.IsResumePrompt(txt) {
+					if pid, ok := tmux.SessionPaneID(); ok {
+						resume[tmux.Short(shown)] = pid
+					}
+				}
 			}
 		}
 		external := map[string]string{}
@@ -171,7 +182,7 @@ func pollStatus(store *index.Store, shown string) tea.Cmd {
 				external[id] = st
 			}
 		}
-		return statusMsg{byID8: byID8, external: external}
+		return statusMsg{byID8: byID8, external: external, resume: resume}
 	}
 }
 
@@ -235,11 +246,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case statusMsg:
 		m.statusByID8 = msg.byID8
 		m.externalStatus = msg.external
-		reaped := m.reconcileLive() // clean up sessions exited inside the dashboard
+		answer := m.autoAnswerResume(msg.resume) // pick "full session as-is"
+		reaped := m.reconcileLive()              // clean up sessions exited inside the dashboard
 		if m.activeOnly || reaped {
 			m.rebuild()
 		}
-		return m, nil
+		return m, answer
 
 	case fullscreenMsg:
 		if msg.id == m.shown {
@@ -270,10 +282,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Global "move one item and load it" — delivered here even while the Claude
 	// pane is focused (via a tmux send-keys binding), so it works in any mode.
 	switch msg.String() {
-	case "alt+j", "alt+down":
+	case "alt+down":
 		m.moveCursor(1)
 		return m.showSelected()
-	case "alt+k", "alt+up":
+	case "alt+up":
 		m.moveCursor(-1)
 		return m.showSelected()
 	}
@@ -495,6 +507,30 @@ func (m Model) showSelected() (tea.Model, tea.Cmd) {
 	m.status, c = flash("▶ " + m.displayName(s))
 	cmds = append(cmds, c)
 	return m, tea.Batch(cmds...)
+}
+
+// autoAnswerResume selects "Resume full session as-is" (option 2) on any pane
+// showing Claude's resume summary/full prompt. Guarded per session so we answer
+// once (the prompt waits for input and won't clear on its own, so there's no
+// race; the 10s window just prevents a double-send before it clears).
+func (m *Model) autoAnswerResume(resume map[string]string) tea.Cmd {
+	if len(resume) == 0 {
+		return nil
+	}
+	if m.answeredResume == nil {
+		m.answeredResume = map[string]int64{}
+	}
+	nowMs := time.Now().UnixMilli()
+	var cmds []tea.Cmd
+	for id8, pane := range resume {
+		if last, ok := m.answeredResume[id8]; ok && nowMs-last < 10000 {
+			continue
+		}
+		m.answeredResume[id8] = nowMs
+		p := pane
+		cmds = append(cmds, func() tea.Msg { _ = tmux.SendPaneKeys(p, "2", "Enter"); return nil })
+	}
+	return tea.Batch(cmds...)
 }
 
 // reconcileLive reaps sessions that exited inside the dashboard (e.g. /exit or
