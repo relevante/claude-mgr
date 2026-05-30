@@ -49,9 +49,9 @@ func configure() {
 		{"set-option", "-g", "pane-border-format", "#{?pane_active,#[fg=colour84]#[bold]▸ #{pane_title},#[fg=colour245]  #{pane_title}}"},
 		{"set-option", "-g", "pane-active-border-style", "fg=colour240"},
 		{"set-option", "-g", "pane-border-style", "fg=colour240"},
-		// Option+arrows: ← to the rail/list, → to the Claude pane.
-		{"bind-key", "-n", "M-Left", "select-pane", "-L"},
-		{"bind-key", "-n", "M-Right", "select-pane", "-R"},
+		// Option+l toggles focus between the rail and the Claude pane (Apple
+		// Terminal doesn't reliably send Option+arrows, but Meta+letter is fine).
+		{"bind-key", "-n", "M-l", "select-pane", "-t", ":.+"},
 		{"bind-key", "-n", "M-z", "resize-pane", "-Z"},
 	}
 	for _, o := range opts {
