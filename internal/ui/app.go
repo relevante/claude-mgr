@@ -98,6 +98,7 @@ type Model struct {
 	// Live state, refreshed by the status poller.
 	statusByID8    map[string]index.Status // sessions running in our tmux (from capture-pane)
 	externalStatus map[string]string       // ids live in other terminals → "busy"/"idle"
+	doneIDs        map[string]bool         // id8 → finished in the background since last viewed
 }
 
 // pendingNew tracks a brand-new session launched before its id is known.
@@ -244,6 +245,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(pollStatus(m.store, m.shown), statusTick())
 
 	case statusMsg:
+		m.markCompleted(msg.byID8) // background working→idle = "done, go check" (green)
 		m.statusByID8 = msg.byID8
 		m.externalStatus = msg.external
 		answer := m.autoAnswerResume(msg.resume) // pick "full session as-is"
@@ -496,6 +498,7 @@ func (m Model) showSelected() (tea.Model, tea.Cmd) {
 	}
 	m.shown = s.SessionID
 	m.openIDs[s.SessionID] = true
+	delete(m.doneIDs, tmux.Short(s.SessionID)) // viewing it clears the "go check" green
 	m.persistWorkspace()
 	name := m.displayName(s)
 	var cmds []tea.Cmd
@@ -507,6 +510,27 @@ func (m Model) showSelected() (tea.Model, tea.Cmd) {
 	m.status, c = flash("▶ " + m.displayName(s))
 	cmds = append(cmds, c)
 	return m, tea.Batch(cmds...)
+}
+
+// markCompleted flags a session that just went from working to idle while it
+// was NOT the shown one — i.e. it finished a run in the background. The flag
+// (rendered as a green dot) clears when the session is next opened.
+func (m *Model) markCompleted(next map[string]index.Status) {
+	shownID8 := ""
+	if m.shown != "" {
+		shownID8 = tmux.Short(m.shown)
+	}
+	for id8, cur := range next {
+		if id8 == shownID8 {
+			continue
+		}
+		if m.statusByID8[id8] == index.StatusWorking && cur == index.StatusIdle {
+			if m.doneIDs == nil {
+				m.doneIDs = map[string]bool{}
+			}
+			m.doneIDs[id8] = true
+		}
+	}
 }
 
 // autoAnswerResume selects "Resume full session as-is" (option 2) on any pane
@@ -564,6 +588,7 @@ func (m *Model) reconcileLive() bool {
 		if m.liveMiss[id] >= 2 {
 			delete(m.openIDs, id)
 			delete(m.liveMiss, id)
+			delete(m.doneIDs, tmux.Short(id))
 			if m.shown == id {
 				m.shown = ""
 			}

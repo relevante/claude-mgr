@@ -293,6 +293,9 @@ func (m Model) statusMark(s index.SessionMeta) (string, lipgloss.Style) {
 		case index.StatusWaiting:
 			return "◐", attnStyle // red: your turn
 		default:
+			if m.doneIDs[tmux.Short(s.SessionID)] {
+				return "●", workStyle // finished in the background — go check (green)
+			}
 			return "●", idleStyle // open here, idle (white)
 		}
 	}
