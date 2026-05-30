@@ -262,6 +262,20 @@ func FocusController() error {
 	return run("select-pane", "-t", ctrl.ID)
 }
 
+// BindLoadKeys installs global (prefix-less) keys that move the rail selection
+// and load the session — working even while the Claude pane is focused, by
+// sending the key through to the controller pane. Must be called from the
+// controller process (reads its own $TMUX_PANE). Idempotent.
+func BindLoadKeys() {
+	pane := os.Getenv("TMUX_PANE")
+	if pane == "" {
+		return
+	}
+	for _, k := range []string{"M-j", "M-k", "M-Down", "M-Up"} {
+		_ = run("bind-key", "-n", k, "send-keys", "-t", pane, k)
+	}
+}
+
 // SetControllerTitle labels the rail pane (shown in its header).
 func SetControllerTitle(title string) error {
 	pane := os.Getenv("TMUX_PANE")

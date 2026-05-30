@@ -121,7 +121,11 @@ func New(store *index.Store) Model {
 
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(scanCmd(m.store), tick(), statusTick(),
-		func() tea.Msg { _ = tmux.SetControllerTitle("claude-mgr"); return nil })
+		func() tea.Msg {
+			_ = tmux.SetControllerTitle("claude-mgr")
+			tmux.BindLoadKeys() // global next/prev-and-load keys
+			return nil
+		})
 }
 
 // --- messages ---
@@ -263,6 +267,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Global "move one item and load it" — delivered here even while the Claude
+	// pane is focused (via a tmux send-keys binding), so it works in any mode.
+	switch msg.String() {
+	case "alt+j", "alt+down":
+		m.moveCursor(1)
+		return m.showSelected()
+	case "alt+k", "alt+up":
+		m.moveCursor(-1)
+		return m.showSelected()
+	}
 	if m.mode != modeNormal {
 		return m.handleInputKey(msg)
 	}

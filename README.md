@@ -56,6 +56,8 @@ claude-mgr --dump   # headless: print the session index and exit
 | `tab` / `→` | jump focus into the Claude pane to type |
 | `z` | zoom the Claude pane fullscreen / back (`Option+z` from either pane) |
 
+**Switch sessions from anywhere (even while typing in Claude):** `Option+j` / `Option+k` (also `Option+↓`/`Option+↑`) move one item and load it into the right pane.
+
 **Returning to the rail from the Claude pane:** `Option+h` (← rail) / `Option+l`
 (→ session), or **click** the rail (mouse is on), or `Ctrl-b ←`. Meta+letter is
 more reliable than Meta+arrow in Apple Terminal.
