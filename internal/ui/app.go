@@ -528,7 +528,16 @@ func (m *Model) autoAnswerResume(resume map[string]string) tea.Cmd {
 		}
 		m.answeredResume[id8] = nowMs
 		p := pane
-		cmds = append(cmds, func() tea.Msg { _ = tmux.SendPaneKeys(p, "2", "Enter"); return nil })
+		// The menu is "arrow to select, Enter to confirm" — number keys do NOT
+		// select, so a bare Enter would confirm the DEFAULT (option 1, "resume
+		// from summary"), which runs /compact. Move ❯ down once to option 2
+		// ("full session as-is"), pause so it registers, then confirm.
+		cmds = append(cmds, func() tea.Msg {
+			_ = tmux.SendPaneKeys(p, "Down")
+			time.Sleep(350 * time.Millisecond)
+			_ = tmux.SendPaneKeys(p, "Enter")
+			return nil
+		})
 	}
 	return tea.Batch(cmds...)
 }
