@@ -49,8 +49,10 @@ func configure() {
 		{"set-option", "-g", "pane-border-format", "#{?pane_active,#[fg=colour84]#[bold]▸ #{pane_title},#[fg=colour245]  #{pane_title}}"},
 		{"set-option", "-g", "pane-active-border-style", "fg=colour240"},
 		{"set-option", "-g", "pane-border-style", "fg=colour240"},
-		// Option+l toggles focus between the rail and the Claude pane (Apple
-		// Terminal doesn't reliably send Option+arrows, but Meta+letter is fine).
+		// Toggle focus between the rail and the Claude pane. Option+Tab is the
+		// primary; Option+l kept as a backup (Apple Terminal can be finicky with
+		// special keys, but reliable with Meta+letter).
+		{"bind-key", "-n", "M-Tab", "select-pane", "-t", ":.+"},
 		{"bind-key", "-n", "M-l", "select-pane", "-t", ":.+"},
 		{"bind-key", "-n", "M-z", "resize-pane", "-Z"},
 	}
