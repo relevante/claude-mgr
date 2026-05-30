@@ -33,6 +33,16 @@ const (
 	modeNew
 )
 
+// pendingQuit is a quit/detach awaiting y/n confirmation, so a stray keypress
+// (e.g. typing in the wrong pane) can't tear things down.
+type pendingQuit int
+
+const (
+	quitNone pendingQuit = iota
+	quitDetach
+	quitKill
+)
+
 const refreshEvery = 1500 * time.Millisecond
 
 // rowKind distinguishes project headers from session entries in the flat list.
@@ -71,8 +81,9 @@ type Model struct {
 
 	hideEmpty    bool
 	showArchived bool
-	activeOnly   bool   // show only sessions with live activity
-	status       string // transient status line
+	activeOnly   bool        // show only sessions with live activity
+	confirmQuit  pendingQuit // a detach/quit awaiting confirmation
+	status       string      // transient status line
 	err          error
 
 	pendingNew *pendingNew // a just-launched session awaiting id discovery
@@ -82,8 +93,8 @@ type Model struct {
 	restored bool            // workspace restore attempted
 
 	// Live state, refreshed by the status poller.
-	statusByID8 map[string]index.Status // sessions running in our tmux (from capture-pane)
-	externalIDs map[string]bool         // full ids of sessions live in other terminals
+	statusByID8    map[string]index.Status // sessions running in our tmux (from capture-pane)
+	externalStatus map[string]string       // ids live in other terminals → "busy"/"idle"
 }
 
 // pendingNew tracks a brand-new session launched before its id is known.
@@ -123,7 +134,7 @@ type statusClearMsg struct{}
 type statusTickMsg struct{}
 type statusMsg struct {
 	byID8    map[string]index.Status
-	external map[string]bool
+	external map[string]string // id → "busy"/"idle" for sessions live elsewhere
 }
 
 const statusEvery = 800 * time.Millisecond
@@ -148,10 +159,10 @@ func pollStatus(store *index.Store, shown string) tea.Cmd {
 				byID8[tmux.Short(shown)] = status.Classify(txt)
 			}
 		}
-		external := map[string]bool{}
-		for id := range live.Sessions(store.ProjectsDir) {
+		external := map[string]string{}
+		for id, st := range live.Statuses(store.ProjectsDir) {
 			if _, inTmux := byID8[tmux.Short(id)]; !inTmux {
-				external[id] = true
+				external[id] = st
 			}
 		}
 		return statusMsg{byID8: byID8, external: external}
@@ -217,7 +228,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case statusMsg:
 		m.statusByID8 = msg.byID8
-		m.externalIDs = msg.external
+		m.externalStatus = msg.external
 		if m.activeOnly {
 			m.rebuild() // liveness changed which rows qualify
 		}
@@ -252,15 +263,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.mode != modeNormal {
 		return m.handleInputKey(msg)
 	}
+	if m.confirmQuit != quitNone {
+		return m.handleConfirm(msg)
+	}
 	switch msg.String() {
 	case "q":
-		// Detach the client but keep the controller + sessions running in the
-		// background tmux session; re-running `claude-mgr` re-attaches.
-		return m, func() tea.Msg { _ = tmux.Detach(); return nil }
+		// Detach (background) — confirmed, so a stray key can't drop you out.
+		m.confirmQuit = quitDetach
+		return m, nil
 	case "Q":
 		// Full quit: tear down the dashboard and every session pane (all still
-		// resumable from disk). This also frees a restart to load a new build.
-		return m, func() tea.Msg { _ = tmux.KillServer(); return nil }
+		// resumable from disk). Confirmed.
+		m.confirmQuit = quitKill
+		return m, nil
 	case "ctrl+c":
 		return m, tea.Quit
 	case "up", "k":
@@ -328,6 +343,22 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, c
 	}
 	return m, nil
+}
+
+// handleConfirm resolves a pending detach/quit: y/enter acts, anything else cancels.
+func (m Model) handleConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	act := m.confirmQuit
+	m.confirmQuit = quitNone
+	switch msg.String() {
+	case "y", "Y", "enter":
+		switch act {
+		case quitDetach:
+			return m, func() tea.Msg { _ = tmux.Detach(); return nil }
+		case quitKill:
+			return m, func() tea.Msg { _ = tmux.KillServer(); return nil }
+		}
+	}
+	return m, nil // any other key cancels
 }
 
 // enterInput switches into a text-input mode with an initial value and prompt.

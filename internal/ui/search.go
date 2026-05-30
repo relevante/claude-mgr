@@ -42,7 +42,8 @@ func (m *Model) isLive(s index.SessionMeta) bool {
 	if _, ok := m.statusByID8[tmux.Short(s.SessionID)]; ok {
 		return true
 	}
-	return m.externalIDs[s.SessionID]
+	_, ext := m.externalStatus[s.SessionID]
+	return ext
 }
 
 // rebuild regenerates the flat row list from m.all, honoring filters and the

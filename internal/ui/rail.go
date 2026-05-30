@@ -22,6 +22,8 @@ var (
 	externalStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("44"))
 	footStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 	inputStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(lipgloss.Color("24"))
+	detachConfirm = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("232")).Background(lipgloss.Color("220"))
+	quitConfirm   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(lipgloss.Color("160"))
 )
 
 // --- navigation ---
@@ -215,13 +217,22 @@ func (m Model) statusMark(s index.SessionMeta) (string, lipgloss.Style) {
 			return "●", dimStyle // live in our tmux but idle
 		}
 	}
-	if m.externalIDs[s.SessionID] {
-		return "●", externalStyle // live in another terminal
+	if st, ok := m.externalStatus[s.SessionID]; ok {
+		if st == "busy" {
+			return "●", workingStyle // working in another terminal
+		}
+		return "●", externalStyle // live in another terminal, idle
 	}
 	return "○", dimStyle
 }
 
 func (m Model) footer(w int) string {
+	switch m.confirmQuit {
+	case quitDetach:
+		return detachConfirm.Width(w).Render(truncate("detach? (sessions keep running)  y = yes · any key = no", w))
+	case quitKill:
+		return quitConfirm.Width(w).Render(truncate("QUIT & close all sessions?  y = yes · any key = no", w))
+	}
 	if m.mode != modeNormal {
 		// Show the active text input (search/rename/new).
 		return inputStyle.Render(truncate(m.input.Prompt+m.input.Value()+"▏", w))
