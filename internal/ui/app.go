@@ -248,6 +248,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Detach the client but keep the controller + sessions running in the
 		// background tmux session; re-running `claude-mgr` re-attaches.
 		return m, func() tea.Msg { _ = tmux.Detach(); return nil }
+	case "Q":
+		// Full quit: tear down the dashboard and every session pane (all still
+		// resumable from disk). This also frees a restart to load a new build.
+		return m, func() tea.Msg { _ = tmux.KillServer(); return nil }
 	case "ctrl+c":
 		return m, tea.Quit
 	case "up", "k":
@@ -443,11 +447,14 @@ func (m *Model) restoreWorkspace() tea.Cmd {
 	for _, s := range m.all {
 		cwd[s.SessionID] = s.Cwd
 	}
+	// Don't re-resume a thread that's already running in another terminal —
+	// two processes on one session id corrupt the transcript.
+	liveElsewhere := live.Sessions(m.store.ProjectsDir)
 	var refs []tmux.SessionRef
 	for _, id := range saved.Open {
 		c := cwd[id]
-		if c == "" {
-			continue // session no longer on disk
+		if c == "" || liveElsewhere[id] {
+			continue // gone from disk, or already live elsewhere
 		}
 		refs = append(refs, tmux.SessionRef{ID: id, Cwd: c})
 		m.openIDs[id] = true

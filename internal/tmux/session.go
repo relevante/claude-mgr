@@ -169,6 +169,12 @@ func Detach() error {
 	return run("detach-client", "-s", Session)
 }
 
+// KillServer tears down the whole dashboard: the controller, every session
+// pane, and the tmux server. Sessions remain resumable from disk.
+func KillServer() error {
+	return run("kill-server")
+}
+
 // AdoptParked renames a parked placeholder window to the real session's name,
 // so future park/join and status polling address it correctly. No-op if the
 // placeholder window doesn't exist (the session is currently shown instead).
