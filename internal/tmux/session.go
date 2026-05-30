@@ -267,7 +267,7 @@ func BindLoadKeys() {
 	if pane == "" {
 		return
 	}
-	for _, k := range []string{"M-Down", "M-Up"} {
+	for _, k := range []string{"M-Down", "M-Up", "M-t"} {
 		_ = run("bind-key", "-n", k, "send-keys", "-t", pane, k)
 	}
 }

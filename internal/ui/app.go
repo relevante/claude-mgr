@@ -5,6 +5,7 @@ package ui
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"sort"
 	"time"
 
@@ -290,6 +291,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "alt+up":
 		m.moveCursor(-1)
 		return m.showSelected()
+	case "alt+t":
+		if cwd := m.openCwd(); cwd != "" {
+			return m, func() tea.Msg { _ = openTerminal(cwd); return nil }
+		}
+		return m, nil
 	}
 	if m.mode != modeNormal {
 		return m.handleInputKey(msg)
@@ -599,6 +605,36 @@ func (m *Model) reconcileLive() bool {
 		m.persistWorkspace()
 	}
 	return changed
+}
+
+// openCwd is the working directory to open a terminal in: the shown session's,
+// else the cursor selection's.
+func (m *Model) openCwd() string {
+	if m.shown != "" {
+		for _, s := range m.all {
+			if s.SessionID == m.shown {
+				return s.Cwd
+			}
+		}
+	}
+	if s, ok := m.currentSession(); ok {
+		return s.Cwd
+	}
+	return ""
+}
+
+// openTerminal opens a new terminal window at dir (macOS `open -a`). The app is
+// overridable via CLAUDE_MGR_TERMINAL; CLAUDE_MGR_OPEN_CMD replaces the launcher
+// entirely (used by tests).
+func openTerminal(dir string) error {
+	if custom := os.Getenv("CLAUDE_MGR_OPEN_CMD"); custom != "" {
+		return exec.Command(custom, dir).Run()
+	}
+	app := os.Getenv("CLAUDE_MGR_TERMINAL")
+	if app == "" {
+		app = "Terminal"
+	}
+	return exec.Command("open", "-a", app, dir).Run()
 }
 
 // persistWorkspace saves the set of open sessions + the shown one.

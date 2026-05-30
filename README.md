@@ -56,6 +56,8 @@ claude-mgr --dump   # headless: print the session index and exit
 | `tab` / `→` | jump focus into the Claude pane to type |
 | `z` | zoom the Claude pane fullscreen / back (`Option+z` from either pane) |
 
+**`Option+T`** opens a new terminal window in the current session's project directory.
+
 **Switch sessions from anywhere (even while typing in Claude):** `Option+↑` / `Option+↓` move one item and load it into the right pane.
 
 **Returning to the rail from the Claude pane:** `Option+l` toggles between rail and Claude pane, or **click** the rail (mouse is on), or `Ctrl-b ←`. Meta+letter is
