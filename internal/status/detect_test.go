@@ -19,9 +19,14 @@ func TestClassify(t *testing.T) {
 			want: index.StatusWorking,
 		},
 		{
-			name: "waiting",
+			name: "plain prompt is idle, not waiting",
 			text: "──────────\n❯ Try \"create a util\"\n──────────\n  ? for shortcuts · ← for agents",
-			want: index.StatusWaiting,
+			want: index.StatusIdle,
+		},
+		{
+			name: "auto-mode prompt is idle",
+			text: "⏺ Ready — send the path.\n❯\n  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents",
+			want: index.StatusIdle,
 		},
 		{
 			name: "permission",
@@ -29,13 +34,18 @@ func TestClassify(t *testing.T) {
 			want: index.StatusPermission,
 		},
 		{
+			name: "numbered list in prose is NOT permission",
+			text: "Here are options:\n  1. flat rail\n  2. beveled rail\n❯\n  ? for shortcuts · ← for agents",
+			want: index.StatusIdle,
+		},
+		{
 			name: "idle",
 			text: "some old transcript output with no hint line visible",
 			want: index.StatusIdle,
 		},
 		{
-			name: "working beats waiting when both present",
-			text: "? for shortcuts · ← for agents\n esc to interrupt",
+			name: "working beats permission when both present",
+			text: "Enter to confirm\n esc to interrupt",
 			want: index.StatusWorking,
 		},
 	}

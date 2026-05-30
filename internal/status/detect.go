@@ -11,21 +11,26 @@ import (
 
 // Markers are the substrings that identify each state. They live in one place
 // so they're easy to tune as Claude's TUI evolves (a known fragility).
+//
+// NOTE: a plain prompt ("? for shortcuts …") is NOT a distinct state — Claude
+// sits there both when idle and when awaiting a reply, and the two are
+// indistinguishable from the pane. So we only flag the two states we can detect
+// reliably (working, and a blocking permission/confirm dialog); everything else
+// is Idle. Permission markers are specific to the confirm UI to avoid matching
+// ordinary conversation text (numbered lists, the word "allow", etc.).
 type Markers struct {
 	Working    []string
 	Permission []string
-	Waiting    []string
 }
 
 // Default markers verified against claude 2.1.158.
 var Default = Markers{
 	Working:    []string{"esc to interrupt"},
-	Permission: []string{"Enter to confirm", "Do you want", "❯ 1.", "❯ 2."},
-	Waiting:    []string{"? for shortcuts"},
+	Permission: []string{"Enter to confirm", "Do you want to proceed", "❯ 1. Yes", "❯ 1. Allow"},
 }
 
 // Classify maps captured pane text to a status. Working and Permission take
-// priority over Waiting; absent any marker the pane is treated as Idle.
+// priority; absent any marker the pane is treated as Idle.
 func Classify(paneText string) index.Status {
 	return Default.Classify(paneText)
 }
@@ -36,9 +41,6 @@ func (m Markers) Classify(paneText string) index.Status {
 	}
 	if anyContains(paneText, m.Permission) {
 		return index.StatusPermission
-	}
-	if anyContains(paneText, m.Waiting) {
-		return index.StatusWaiting
 	}
 	return index.StatusIdle
 }
