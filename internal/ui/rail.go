@@ -12,15 +12,21 @@ import (
 )
 
 var (
-	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(lipgloss.Color("24")).Padding(0, 1)
-	headerStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("117"))
-	selStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(lipgloss.Color("238"))
-	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
-	shownStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("84"))
-	workingStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
-	permStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
-	externalStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("44"))
-	footStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(lipgloss.Color("24")).Padding(0, 1)
+	headerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("117"))
+	selStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(lipgloss.Color("238"))
+	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	footStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+
+	// Status dots — color encodes WHERE (your dashboard = colored, elsewhere =
+	// gray), glyph + color encode WHAT. See statusMark.
+	workStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("84"))  // working (green): Claude busy
+	attnStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("203")) // your turn (red): waiting / permission
+	idleStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("252")) // open here, idle (white)
+	awayStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("245")) // running elsewhere (gray)
+	dormantStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240")) // dormant (dim gray)
+	shownTriStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("84"))
+
 	inputStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(lipgloss.Color("24"))
 	detachConfirm = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("232")).Background(lipgloss.Color("220"))
 	quitConfirm   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(lipgloss.Color("160"))
@@ -139,7 +145,7 @@ func (m Model) View() string {
 	b.WriteByte('\n')
 
 	if m.err != nil {
-		b.WriteString(permStyle.Render(truncate("error: "+m.err.Error(), w)))
+		b.WriteString(attnStyle.Render(truncate("error: "+m.err.Error(), w)))
 		return b.String()
 	}
 	if len(m.rows) == 0 {
@@ -173,11 +179,17 @@ func (m Model) renderRow(r row, selected bool, w int, now time.Time) string {
 	}
 	s := r.sess
 	mark, markStyle := m.statusMark(s)
-
 	rel := index.RelTime(s.LastActive, now)
-	// layout:  "  <mark> <title>      <rel>"
+
+	// Trailing outline triangle marks the session shown in the right pane,
+	// pointing toward the main view. Independent of the status dot.
+	suffix := ""
+	if s.SessionID == m.shown {
+		suffix = " ▷"
+	}
+
 	prefix := "  " + mark + " "
-	avail := w - lipgloss.Width(prefix) - lipgloss.Width(rel) - 1
+	avail := w - lipgloss.Width(prefix) - lipgloss.Width(rel) - lipgloss.Width(suffix) - 1
 	if avail < 4 {
 		avail = 4
 	}
@@ -190,40 +202,40 @@ func (m Model) renderRow(r row, selected bool, w int, now time.Time) string {
 	if pad < 1 {
 		pad = 1
 	}
-	body := title + strings.Repeat(" ", pad) + " " + rel
+	gap := strings.Repeat(" ", pad)
 
 	if selected {
-		return selStyle.Width(w).Render(prefix + body)
+		return selStyle.Width(w).Render(prefix + title + gap + " " + rel + suffix)
 	}
-	return markStyle.Render(prefix) + title + strings.Repeat(" ", pad) + " " + dimStyle.Render(rel)
+	return markStyle.Render(prefix) + title + gap + " " + dimStyle.Render(rel) + shownTriStyle.Render(suffix)
 }
 
-// statusMark chooses the status glyph + style for a session: the shown session
-// gets ▶; sessions live in our tmux reflect their captured activity; sessions
-// live in another terminal show a cyan dot; everything else is a dim ○.
+// statusMark chooses the status glyph + style for a session. Color encodes
+// WHERE it runs (your dashboard = colored, another terminal = gray, nowhere =
+// dim hollow); glyph + color encode WHAT it's doing. "Shown on the right" is a
+// separate trailing ▷ in renderRow, so status stays visible for that row too.
 func (m Model) statusMark(s index.SessionMeta) (string, lipgloss.Style) {
-	if s.SessionID == m.shown {
-		return "▶", shownStyle
-	}
+	// In your dashboard: colored, from real captured status.
 	if st, ok := m.statusByID8[tmux.Short(s.SessionID)]; ok {
 		switch st {
 		case index.StatusWorking:
-			return "●", workingStyle
+			return "▶", workStyle // green play: Claude busy
 		case index.StatusPermission:
-			return "⚠", permStyle
+			return "⚠", attnStyle // red: your turn
 		case index.StatusWaiting:
-			return "◐", shownStyle
+			return "◐", attnStyle // red: your turn
 		default:
-			return "●", dimStyle // live in our tmux but idle
+			return "●", idleStyle // open here, idle (white)
 		}
 	}
+	// Running in another terminal: gray; glyph still shows busy vs idle.
 	if st, ok := m.externalStatus[s.SessionID]; ok {
 		if st == "busy" {
-			return "●", workingStyle // working in another terminal
+			return "▶", awayStyle
 		}
-		return "●", externalStyle // live in another terminal, idle
+		return "●", awayStyle
 	}
-	return "○", dimStyle
+	return "○", dormantStyle // dormant — nothing running
 }
 
 func (m Model) footer(w int) string {
