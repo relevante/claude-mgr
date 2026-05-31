@@ -74,6 +74,33 @@ func (m *Model) pageStep() int {
 	return 1
 }
 
+// needsAttention reports whether a session is worth jumping to: working,
+// awaiting a permission answer, or finished in the background (green dot).
+func (m *Model) needsAttention(s index.SessionMeta) bool {
+	id8 := tmux.Short(s.SessionID)
+	if st, ok := m.statusByID8[id8]; ok && (st == index.StatusWorking || st == index.StatusPermission) {
+		return true
+	}
+	return m.doneIDs[id8]
+}
+
+// jumpAttention moves the cursor to the next/prev session needing attention.
+func (m *Model) jumpAttention(dir int) {
+	i := m.cursor
+	for {
+		i += dir
+		if i < 0 || i >= len(m.rows) {
+			return // none in that direction
+		}
+		if m.rows[i].kind == rowSession && m.needsAttention(m.rows[i].sess) {
+			m.cursor = i
+			m.syncSelection()
+			m.clampScroll()
+			return
+		}
+	}
+}
+
 func (m *Model) firstSessionRow() int {
 	for i, r := range m.rows {
 		if r.kind == rowSession {
