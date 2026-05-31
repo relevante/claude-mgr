@@ -14,7 +14,6 @@ import (
 var (
 	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(lipgloss.Color("24")).Padding(0, 1)
 	headerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("117"))
-	selStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(lipgloss.Color("238"))
 	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 	footStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 
@@ -210,7 +209,7 @@ func (m Model) renderRow(r row, selected bool, w int, now time.Time) string {
 	if s.SessionID == m.shown {
 		gut = "▌"
 	}
-	prefix := gut + " " + mark + " "
+	prefix := gut + " " + mark + " " // width 4
 	avail := w - lipgloss.Width(prefix) - lipgloss.Width(rightPlain) - 1
 	if avail < 4 {
 		avail = 4
@@ -226,14 +225,36 @@ func (m Model) renderRow(r row, selected bool, w int, now time.Time) string {
 	}
 	gap := strings.Repeat(" ", pad)
 
-	if selected { // cursor highlight (gutter bar still shows if it's also shown)
-		return selStyle.Width(w).Render(prefix + title + gap + " " + rightPlain)
+	// Render each segment separately so the icons keep their own color. On the
+	// selected row, every segment also gets the selection background, so the
+	// cursor highlight spans the row without flattening the icon colors.
+	gutSty, markSty, pieSty := shownGutter, markStyle, pieStyle
+	txtSty := lipgloss.NewStyle() // title
+	metaSty := dimStyle           // time / project
+	spSty := lipgloss.NewStyle()  // separators + padding
+	if selected {
+		bg := lipgloss.Color("238")
+		gutSty = gutSty.Background(bg)
+		markSty = markSty.Background(bg)
+		pieSty = pieSty.Background(bg)
+		txtSty = txtSty.Bold(true).Foreground(lipgloss.Color("231")).Background(bg)
+		metaSty = lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(bg)
+		spSty = spSty.Background(bg)
 	}
-	rightRendered := dimStyle.Render(meta)
+
+	var b strings.Builder
+	b.WriteString(gutSty.Render(gut))
+	b.WriteString(spSty.Render(" "))
+	b.WriteString(markSty.Render(mark))
+	b.WriteString(spSty.Render(" "))
+	b.WriteString(txtSty.Render(title))
+	b.WriteString(spSty.Render(gap + " "))
 	if pie != "" {
-		rightRendered = pieStyle.Render(pie) + " " + dimStyle.Render(meta)
+		b.WriteString(pieSty.Render(pie))
+		b.WriteString(spSty.Render(" "))
 	}
-	return shownGutter.Render(gut) + " " + markStyle.Render(mark) + " " + title + gap + " " + rightRendered
+	b.WriteString(metaSty.Render(meta))
+	return b.String()
 }
 
 // contextLimit is the assumed context-window size (tokens). The user runs 1M
