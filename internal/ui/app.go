@@ -17,6 +17,7 @@ import (
 	"claude-mgr/internal/overlay"
 	"claude-mgr/internal/status"
 	"claude-mgr/internal/tmux"
+	"claude-mgr/internal/watch"
 	"claude-mgr/internal/workspace"
 )
 
@@ -100,6 +101,10 @@ type Model struct {
 	statusByID8    map[string]index.Status // sessions running in our tmux (from capture-pane)
 	externalStatus map[string]string       // ids live in other terminals → "busy"/"idle"
 	doneIDs        map[string]bool         // id8 → finished in the background since last viewed
+
+	// fsEvents fires when the session registry changes, so status refreshes
+	// instantly instead of waiting for the poll. nil if watching is unavailable.
+	fsEvents <-chan struct{}
 }
 
 // pendingNew tracks a brand-new session launched before its id is known.
@@ -112,7 +117,7 @@ type pendingNew struct {
 func New(store *index.Store) Model {
 	ti := textinput.New()
 	ti.Prompt = ""
-	return Model{
+	m := Model{
 		store:      store,
 		ov:         overlay.Load(overlay.DefaultPath()),
 		hideEmpty:  true,
@@ -121,15 +126,24 @@ func New(store *index.Store) Model {
 		wsPath:     workspace.DefaultPath(),
 		openIDs:    map[string]bool{},
 	}
+	// Event-drive status off the registry dir; fall back to polling on error.
+	if w, err := watch.NewRegistry(live.SessionsDir(store.ProjectsDir)); err == nil {
+		m.fsEvents = w.Events()
+	}
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(scanCmd(m.store), tick(), statusTick(),
+	cmds := []tea.Cmd{scanCmd(m.store), tick(), statusTick(m.statusInterval()),
 		func() tea.Msg {
 			_ = tmux.SetControllerTitle("claude-mgr")
 			tmux.BindLoadKeys() // global next/prev-and-load keys
 			return nil
-		})
+		}}
+	if m.fsEvents != nil {
+		cmds = append(cmds, waitForFS(m.fsEvents))
+	}
+	return tea.Batch(cmds...)
 }
 
 // --- messages ---
@@ -139,6 +153,7 @@ type sessionsMsg struct {
 	err      error
 }
 type tickMsg struct{}
+type fsEventMsg struct{} // the session registry changed on disk
 type fullscreenMsg struct{ id string }
 type statusClearMsg struct{}
 type statusTickMsg struct{}
@@ -149,10 +164,30 @@ type statusMsg struct {
 	shownActual string            // the shown pane's current session id (may differ after /clear)
 }
 
-const statusEvery = 800 * time.Millisecond
+const (
+	statusEvery     = 800 * time.Millisecond // poll cadence when watching is unavailable
+	statusSafetyNet = 5 * time.Second        // slow self-heal poll when fs events drive status
+)
 
-func statusTick() tea.Cmd {
-	return tea.Tick(statusEvery, func(time.Time) tea.Msg { return statusTickMsg{} })
+// statusInterval is the poll cadence: a fast loop normally, but only a slow
+// safety-net once registry file events drive the refreshes.
+func (m Model) statusInterval() time.Duration {
+	if m.fsEvents != nil {
+		return statusSafetyNet
+	}
+	return statusEvery
+}
+
+func statusTick(d time.Duration) tea.Cmd {
+	return tea.Tick(d, func(time.Time) tea.Msg { return statusTickMsg{} })
+}
+
+// waitForFS blocks until the registry changes, then asks for a status refresh.
+func waitForFS(ch <-chan struct{}) tea.Cmd {
+	return func() tea.Msg {
+		<-ch
+		return fsEventMsg{}
+	}
 }
 
 // pollStatus reads each live session's activity and maps external claude
@@ -268,7 +303,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(scanCmd(m.store), tick())
 
 	case statusTickMsg:
-		return m, tea.Batch(pollStatus(m.store, m.shown), statusTick())
+		return m, tea.Batch(pollStatus(m.store, m.shown), statusTick(m.statusInterval()))
+
+	case fsEventMsg:
+		// A registry file changed — refresh status now and keep listening.
+		return m, tea.Batch(pollStatus(m.store, m.shown), waitForFS(m.fsEvents))
 
 	case statusMsg:
 		m.markCompleted(msg.byID8) // background working→idle = "done, go check" (green)

@@ -47,10 +47,16 @@ func Statuses(projectsDir string) map[string]string {
 	return out
 }
 
+// SessionsDir returns the registry directory (sibling of the projects dir) where
+// Claude writes one <pid>.json per running process.
+func SessionsDir(projectsDir string) string {
+	return filepath.Join(filepath.Dir(projectsDir), "sessions")
+}
+
 // SessionForPID returns the session id a given pid is currently running,
 // straight from its registry file (reflects /clear immediately). "" if unknown.
 func SessionForPID(projectsDir string, pid int) string {
-	dir := filepath.Join(filepath.Dir(projectsDir), "sessions")
+	dir := SessionsDir(projectsDir)
 	raw, err := os.ReadFile(filepath.Join(dir, strconv.Itoa(pid)+".json"))
 	if err != nil {
 		return ""
@@ -63,7 +69,7 @@ func SessionForPID(projectsDir string, pid int) string {
 }
 
 func readRegistry(projectsDir string) []record {
-	dir := filepath.Join(filepath.Dir(projectsDir), "sessions")
+	dir := SessionsDir(projectsDir)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil

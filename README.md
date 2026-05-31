@@ -39,8 +39,10 @@ quick look or for debugging).
   scrolling** all just work. (tmux is only a terminal multiplexer — nothing to do
   with git.)
 - A single-binary **Go controller** (Bubble Tea) is the left rail. It reads the
-  session index off disk, drives the right pane, and scrapes pane content to show
-  what each agent is doing.
+  session index off disk and drives the right pane. Each agent's live status
+  (working / your-turn / idle) comes from Claude's own session registry, watched
+  with file-system notifications so the rail updates the instant a session's
+  state flips (with a slow poll as a safety net).
 - Sessions you switch away from are **parked** in detached tmux windows — their
   processes keep running. Switching back rejoins the same live process.
 
