@@ -299,10 +299,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "alt+up":
 		m.moveCursor(-1)
 		return m.showSelected()
-	case "alt+shift+up", "shift+alt+up":
+	case "alt+'":
 		m.jumpAttention(-1)
 		return m, nil
-	case "alt+shift+down", "shift+alt+down":
+	case "alt+/":
 		m.jumpAttention(1)
 		return m, nil
 	case "alt+t":
