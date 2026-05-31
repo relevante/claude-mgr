@@ -1,23 +1,42 @@
 # claude-mgr
 
-A single pane to manage every Claude Code session across every project.
+**A single pane for all your Claude Code sessions, across every project.**
 
 You run Claude Code for lots of different things and end up with terminal windows
-and tabs scattered everywhere — hard to track, easy to lose on reboot.
-`claude-mgr` is a persistent, fullscreen "home base": a session switcher rail on
-the left (grouped by project, with live status), and the focused Claude session
-running live on the right. Keep it up all the time; jump between threads with the
-keyboard; nothing gets lost.
+and tabs scattered everywhere — hard to track, easy to lose on reboot. `claude-mgr`
+is a persistent, fullscreen "home base": a session switcher on the left (grouped by
+project, with live status), and the focused Claude session running live on the
+right. Keep it up all the time, jump between threads with the keyboard, and nothing
+gets lost.
 
 It reads the sessions Claude Code already persists at
 `~/.claude/projects/*/<sessionId>.jsonl`, so **no session is ever lost** — every
 thread is one keystroke from `claude --resume`, even after a reboot.
 
+## Setup
+
+**Requirements:** macOS (built/tested on Apple Terminal), `tmux`, Go 1.24+, and the
+`claude` CLI on your `PATH`.
+
+```sh
+brew install tmux
+go build -o ~/.local/bin/claude-mgr .   # ~/.local/bin is typically already on PATH
+claude-mgr                              # launch the dashboard
+```
+
+> Setting this up with Claude Code? Just open this repo in Claude and say
+> "build and install claude-mgr per the README." It needs `tmux` (`brew install
+> tmux`) and Go; the build is a single `go build`. The first launch creates a tmux
+> session and attaches you to it.
+
+`claude-mgr --dump` prints the session index without launching the UI (handy for a
+quick look or for debugging).
+
 ## How it works
 
 - A dedicated **tmux** server (socket `claude-mgr`) renders and multiplexes the
-  live Claude panes — so terminal emulation, colors, resize, and **mouse-wheel
-  scrolling** all Just Work. (tmux is only a multiplexer; it has nothing to do
+  live Claude panes, so terminal emulation, colors, resize, and **mouse-wheel
+  scrolling** all just work. (tmux is only a terminal multiplexer — nothing to do
   with git.)
 - A single-binary **Go controller** (Bubble Tea) is the left rail. It reads the
   session index off disk, drives the right pane, and scrapes pane content to show
@@ -25,80 +44,89 @@ thread is one keystroke from `claude --resume`, even after a reboot.
 - Sessions you switch away from are **parked** in detached tmux windows — their
   processes keep running. Switching back rejoins the same live process.
 
-## Requirements
+## Keys
 
-- macOS (built/tested on Apple Terminal) — `brew install tmux`
-- Go 1.24+ to build
-- The `claude` CLI on your `PATH`
-
-## Install
-
-```sh
-brew install tmux
-go build -o ~/.local/bin/claude-mgr .   # ~/.local/bin is already on your PATH
-```
-
-## Use
-
-```sh
-claude-mgr          # opens the dashboard (creates/attaches the tmux session)
-claude-mgr --dump   # headless: print the session index and exit
-```
-
-### Keys (rail focused)
+These work **from anywhere**, even while typing in the Claude pane (`Option` =
+`⌥`; Meta+letter is more reliable than Meta+arrow in Apple Terminal):
 
 | Key | Action |
 |-----|--------|
-| `↑`/`↓` (or `k`/`j`) | move selection · **mouse wheel** scrolls too |
-| `Ctrl-d`/`Ctrl-u` (or `PgDn`/`PgUp`) | jump half a screen |
-| `g`/`G` | top / bottom |
+| `Option+Tab` (or `Option+L`) | toggle focus between the rail and the Claude pane |
+| `Option+↑` / `Option+↓` | switch to the previous / next session and load it on the right |
+| `Option+Z` | zoom the Claude pane fullscreen / back |
+| `Option+T` | open a new terminal window in the current session's project directory |
+
+In the **rail**:
+
+| Key | Action |
+|-----|--------|
+| `↑`/`↓` (or `k`/`j`) · mouse wheel | move selection |
+| `Ctrl-d`/`Ctrl-u` (or `PgDn`/`PgUp`) | jump half a screen · `g`/`G` top/bottom |
 | `↵` | open the selected thread on the right (resumes it) |
-| `tab` / `→` | jump focus into the Claude pane to type |
-| `z` | zoom the Claude pane fullscreen / back (`Option+z` from either pane) |
-
-**`Option+T`** opens a new terminal window in the current session's project directory.
-
-**Switch sessions from anywhere (even while typing in Claude):** `Option+↑` / `Option+↓` move one item and load it into the right pane.
-
-**Returning to the rail from the Claude pane:** `Option+l` toggles between rail and Claude pane, or **click** the rail (mouse is on), or `Ctrl-b ←`. Meta+letter is
-more reliable than Meta+arrow in Apple Terminal.
-
-### Other keys
+| `Tab` / `→` | jump focus into the Claude pane to type |
+| `z` | zoom the Claude pane |
 | `/` | fuzzy-search across all threads |
-| `r` | rename the selected thread (stored by the dashboard) |
-| `n` | new session in a chosen directory |
-| `p` | pin / unpin |
-| `a` | archive / unarchive · `A` show archived |
-| `e` | show/hide empty (`/clear`-artifact) sessions |
-| `q` | detach (dashboard + sessions keep running in the background) |
+| `s` | toggle flat "recent activity" sort (across all projects) |
+| `f` | toggle "active only" filter |
+| `r` | rename the selected thread · `n` new session · `p` pin · `a` archive (`A` show) · `e` show/hide empty |
+| `q` | detach (background — sessions keep running; `claude-mgr` re-attaches) |
+| `Q` | quit (tear down the dashboard; sessions stay resumable on disk) |
 
-### Status dots
+`q` and `Q` ask for a `y` to confirm. From the Claude pane you can also click the
+rail to focus it, or use `Ctrl-b ←`.
 
-`▶` shown · `●` working (yellow) · `◐` waiting for you · `⚠` needs permission
-(red) · `●` live in another terminal (cyan) · `○` dormant (resumable).
+## The status icons
 
-## Persistence
+Each row shows **where/what** on the left, and a **context-fill pie** on the right.
 
-The set of open threads is saved to `~/.config/claude-mgr/workspace.json`. On
-launch (e.g. after a reboot) the dashboard relaunches them automatically — one
-shown, the rest parked — so your workspace comes back. `q` detaches without
-tearing anything down; re-running `claude-mgr` re-attaches.
+| Icon | Meaning |
+|------|---------|
+| `▌` (left bar) | this session is the one shown on the right |
+| `▶` green | working (Claude is busy) |
+| `⚠` red | needs permission / your turn |
+| `●` white | open here, idle |
+| `●` green | finished in the background since you last looked — go check it |
+| `●` gray | alive in another terminal |
+| `○` dim | dormant (nothing running; resumable) |
+| `○◔◑◕●` | context-window fill, neutral → amber → red as it gets full |
 
-Config & state live under `~/.config/claude-mgr/`:
-`index.json` (session cache), `overlay.json` (names/pins/archives),
-`workspace.json` (open threads).
+Color encodes **where** (your dashboard = colored, elsewhere = gray, nowhere =
+hollow); the glyph encodes **what**.
 
-## Layout
+## Niceties it handles for you
+
+- **Reboot/quit restore.** Open threads are saved to
+  `~/.config/claude-mgr/workspace.json`; on launch they're relaunched (one shown,
+  the rest parked) so your workspace comes back.
+- **Resume prompts.** When resuming a large session shows Claude's "resume from
+  summary vs full session" prompt, it auto-picks *full session as-is*.
+- **`/clear`.** If you `/clear` a session (which starts a new session id under the
+  same process), the dashboard follows the change instead of showing a duplicate.
+
+State lives under `~/.config/claude-mgr/`: `index.json` (session cache),
+`overlay.json` (names/pins/archives), `workspace.json` (open threads). Nothing is
+written into your Claude session data.
+
+## Project layout
 
 ```
 main.go                 launcher + __controller subcommand + --dump
 internal/index/         session discovery, tail-read, (path,mtime,size) cache
-internal/tmux/          tmux CLI wrapper: split, park/join, zoom, capture
-internal/status/        classify pane content → working/waiting/permission/idle
-internal/live/          map running claude PIDs → sessions (live elsewhere)
+internal/tmux/          tmux CLI wrapper: split, park/join, zoom, capture, keys
+internal/status/        classify pane content → working / permission / idle
+internal/live/          map running claude pids → sessions (registry-based)
 internal/overlay/       custom names, pins, archives
 internal/workspace/     open-thread persistence + restore
-internal/ui/            Bubble Tea rail: list, search, rename, new-session
+internal/ui/            Bubble Tea rail: list, search, rename, new-session, status
 ```
 
 See `spike/FINDINGS.md` for the verified terminal-behavior facts the design rests on.
+
+## Notes & limits
+
+- macOS-focused (uses `open -a Terminal` for `Option+T`; overridable via
+  `CLAUDE_MGR_TERMINAL`). The context pie assumes a 1M context window.
+- Status detection scrapes the Claude TUI, so a future Claude UI change could
+  require re-tuning the markers in `internal/status/detect.go`.
+- Keybindings/look changes can be applied to a running dashboard live; behavior
+  changes need a restart (`Q`, then `claude-mgr`) to load the new binary.

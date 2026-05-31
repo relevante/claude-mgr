@@ -257,8 +257,7 @@ func (m Model) renderRow(r row, selected bool, w int, now time.Time) string {
 	return b.String()
 }
 
-// contextLimit is the assumed context-window size (tokens). The user runs 1M
-// context; configurable later.
+// contextLimit is the assumed context-window size (tokens); defaults to 1M.
 const contextLimit = 1_000_000
 
 // contextPie returns a quarter-filled circle for the session's context usage,
