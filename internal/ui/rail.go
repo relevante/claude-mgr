@@ -85,18 +85,19 @@ func (m *Model) needsAttention(s index.SessionMeta) bool {
 }
 
 // jumpAttention moves the cursor to the next/prev session needing attention.
-func (m *Model) jumpAttention(dir int) {
+// It reports whether the cursor actually moved (false = none in that direction).
+func (m *Model) jumpAttention(dir int) bool {
 	i := m.cursor
 	for {
 		i += dir
 		if i < 0 || i >= len(m.rows) {
-			return // none in that direction
+			return false // none in that direction
 		}
 		if m.rows[i].kind == rowSession && m.needsAttention(m.rows[i].sess) {
 			m.cursor = i
 			m.syncSelection()
 			m.clampScroll()
-			return
+			return true
 		}
 	}
 }

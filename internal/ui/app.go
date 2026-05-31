@@ -300,10 +300,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveCursor(-1)
 		return m.showSelected()
 	case "alt+'":
-		m.jumpAttention(-1)
+		if m.jumpAttention(-1) {
+			return m.showSelected()
+		}
 		return m, nil
 	case "alt+/":
-		m.jumpAttention(1)
+		if m.jumpAttention(1) {
+			return m.showSelected()
+		}
 		return m, nil
 	case "alt+t":
 		if cwd := m.openCwd(); cwd != "" {
