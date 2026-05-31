@@ -84,7 +84,8 @@ Each row shows **where/what** on the left, and a **context-fill pie** on the rig
 |------|---------|
 | `▌` (left bar) | this session is the one shown on the right |
 | `▶` green | working (Claude is busy) |
-| `⚠` red | needs permission / your turn |
+| `⚠` red | needs permission / your turn (a confirm dialog) |
+| `◐` red | blocked waiting on you (another prompt) |
 | `●` white | open here, idle |
 | `●` green | finished in the background since you last looked — go check it |
 | `●` gray | alive in another terminal |
@@ -127,7 +128,10 @@ See `spike/FINDINGS.md` for the verified terminal-behavior facts the design rest
 
 - macOS-focused (uses `open -a Terminal` for `Option+T`; overridable via
   `CLAUDE_MGR_TERMINAL`). The context pie assumes a 1M context window.
-- Status detection scrapes the Claude TUI, so a future Claude UI change could
-  require re-tuning the markers in `internal/status/detect.go`.
+- Status (working / your-turn / idle) comes from Claude's own real-time session
+  registry (`~/.claude/sessions/<pid>.json`: `busy`/`waiting`/`idle`); pane
+  scraping is only a fallback and refines the permission ⚠. A future change to
+  the registry shape or the `internal/status/detect.go` markers could require
+  re-tuning.
 - Keybindings/look changes can be applied to a running dashboard live; behavior
   changes need a restart (`Q`, then `claude-mgr`) to load the new binary.

@@ -154,16 +154,33 @@ func statusTick() tea.Cmd {
 	return tea.Tick(statusEvery, func(time.Time) tea.Msg { return statusTickMsg{} })
 }
 
-// pollStatus scrapes our tmux panes for live status and maps external claude
+// pollStatus reads each live session's activity and maps external claude
 // processes to their sessions. Runs off the UI thread as a tea.Cmd.
+//
+// Status comes from Claude's own pid registry (idle/busy/waiting), which is
+// authoritative and real-time; we only scrape the pane as a fallback (a session
+// not yet in the registry) and to refine a generic "waiting" into a specific
+// permission ⚠ and to spot the resume prompt.
 func pollStatus(store *index.Store, shown string) tea.Cmd {
 	return func() tea.Msg {
+		reg := live.Statuses(store.ProjectsDir)
+		regByShort := make(map[string]index.Status, len(reg))
+		for id, st := range reg {
+			regByShort[tmux.Short(id)] = status.FromRegistry(st)
+		}
+		// classify resolves a pane's status: prefer the registry flag, fall back to
+		// pane text; a confirmed permission dialog upgrades waiting (◐) → ⚠.
+		classify := func(id8, txt string) index.Status {
+			st, ok := regByShort[id8]
+			return status.Resolve(st, ok, txt)
+		}
+
 		byID8 := map[string]index.Status{}
 		resume := map[string]string{}
 		if parked, err := tmux.ParkedPanes(); err == nil {
 			for _, p := range parked {
 				txt, _ := tmux.CapturePane(p.PaneID, 8)
-				byID8[p.ID8] = status.Classify(txt)
+				byID8[p.ID8] = classify(p.ID8, txt)
 				if status.IsResumePrompt(txt) {
 					resume[p.ID8] = p.PaneID
 				}
@@ -171,7 +188,7 @@ func pollStatus(store *index.Store, shown string) tea.Cmd {
 		}
 		if shown != "" {
 			if txt, err := tmux.CaptureSession(8); err == nil {
-				byID8[tmux.Short(shown)] = status.Classify(txt)
+				byID8[tmux.Short(shown)] = classify(tmux.Short(shown), txt)
 				if status.IsResumePrompt(txt) {
 					if pid, ok := tmux.SessionPaneID(); ok {
 						resume[tmux.Short(shown)] = pid
@@ -180,7 +197,7 @@ func pollStatus(store *index.Store, shown string) tea.Cmd {
 			}
 		}
 		external := map[string]string{}
-		for id, st := range live.Statuses(store.ProjectsDir) {
+		for id, st := range reg {
 			if _, inTmux := byID8[tmux.Short(id)]; !inTmux {
 				external[id] = st
 			}

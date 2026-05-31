@@ -75,10 +75,12 @@ func (m *Model) pageStep() int {
 }
 
 // needsAttention reports whether a session is worth jumping to: working,
-// awaiting a permission answer, or finished in the background (green dot).
+// blocked waiting on you (permission or any other prompt), or finished in the
+// background (green dot).
 func (m *Model) needsAttention(s index.SessionMeta) bool {
 	id8 := tmux.Short(s.SessionID)
-	if st, ok := m.statusByID8[id8]; ok && (st == index.StatusWorking || st == index.StatusPermission) {
+	if st, ok := m.statusByID8[id8]; ok &&
+		(st == index.StatusWorking || st == index.StatusWaiting || st == index.StatusPermission) {
 		return true
 	}
 	return m.doneIDs[id8]

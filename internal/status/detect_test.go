@@ -57,3 +57,50 @@ func TestClassify(t *testing.T) {
 		})
 	}
 }
+
+// Verified against claude 2.1.159: the pid registry self-reports these.
+func TestFromRegistry(t *testing.T) {
+	cases := []struct {
+		in   string
+		want index.Status
+	}{
+		{"busy", index.StatusWorking},
+		{"waiting", index.StatusWaiting},
+		{"idle", index.StatusIdle},
+		{"", index.StatusIdle},
+		{"something-unknown", index.StatusIdle},
+	}
+	for _, c := range cases {
+		if got := FromRegistry(c.in); got != c.want {
+			t.Fatalf("FromRegistry(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+const permDialog = " ❯ 1. Yes\n   2. No\n Do you want to proceed?"
+
+// Resolve prefers the registry flag and refines waiting→permission via the pane.
+func TestResolve(t *testing.T) {
+	cases := []struct {
+		name     string
+		reg      index.Status
+		regKnown bool
+		pane     string
+		want     index.Status
+	}{
+		{"registry busy wins over silent pane", index.StatusWorking, true, "idle prose", index.StatusWorking},
+		{"registry idle wins over noisy pane", index.StatusIdle, true, "esc to interrupt", index.StatusIdle},
+		{"registry waiting, plain pane stays waiting", index.StatusWaiting, true, "❯ Try something", index.StatusWaiting},
+		{"registry waiting + permission dialog upgrades to ⚠", index.StatusWaiting, true, permDialog, index.StatusPermission},
+		{"no registry falls back to pane: working", index.StatusIdle, false, "esc to interrupt", index.StatusWorking},
+		{"no registry falls back to pane: permission", index.StatusIdle, false, permDialog, index.StatusPermission},
+		{"no registry falls back to pane: idle", index.StatusIdle, false, "❯ Try something", index.StatusIdle},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := Resolve(c.reg, c.regKnown, c.pane); got != c.want {
+				t.Fatalf("Resolve(%v,%v,pane) = %v, want %v", c.reg, c.regKnown, got, c.want)
+			}
+		})
+	}
+}

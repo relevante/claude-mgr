@@ -45,6 +45,36 @@ func (m Markers) Classify(paneText string) index.Status {
 	return index.StatusIdle
 }
 
+// FromRegistry maps Claude's self-reported pid-registry status — which it keeps
+// current in ~/.claude/sessions/<pid>.json — to a Status. This is authoritative
+// and real-time (verified: idle/busy/waiting flip within a few hundred ms),
+// unlike scraping pane text, so it's the preferred source where available.
+// "busy" → working, "waiting" → blocked on you, anything else → idle.
+func FromRegistry(s string) index.Status {
+	switch s {
+	case "busy":
+		return index.StatusWorking
+	case "waiting":
+		return index.StatusWaiting
+	default:
+		return index.StatusIdle
+	}
+}
+
+// Resolve picks a session's status, preferring Claude's authoritative registry
+// flag (reg, when regKnown) over scraped pane text, and refining a generic
+// "waiting" into a specific Permission ⚠ when the pane shows the confirm dialog.
+func Resolve(reg index.Status, regKnown bool, paneText string) index.Status {
+	st := reg
+	if !regKnown {
+		st = Classify(paneText)
+	}
+	if st == index.StatusWaiting && Classify(paneText) == index.StatusPermission {
+		st = index.StatusPermission
+	}
+	return st
+}
+
 // IsResumePrompt reports whether the pane is showing Claude's "resume from
 // summary vs full session" choice (offered when resuming a large session).
 func IsResumePrompt(paneText string) bool {
