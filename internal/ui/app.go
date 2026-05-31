@@ -22,7 +22,7 @@ import (
 
 // maxRestore caps how many sessions are relaunched on startup, to avoid a
 // thundering herd of claude processes.
-const maxRestore = 12
+const maxRestore = 20
 
 // inputMode is the controller's interaction mode.
 type inputMode int
@@ -502,8 +502,8 @@ func (m Model) showSelected() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	prev := m.shown
-	_ = tmux.Unzoom() // opening a session always returns to the split
+	prev := m.actualShownID() // the pane's real id now (may have /clear'd) — park it correctly
+	_ = tmux.Unzoom()         // opening a session always returns to the split
 	created, err := tmux.ShowSession(tmux.SessionRef{ID: s.SessionID, Cwd: s.Cwd}, prev)
 	if err != nil {
 		var c tea.Cmd
@@ -524,6 +524,22 @@ func (m Model) showSelected() (tea.Model, tea.Cmd) {
 	m.status, c = flash("▶ " + m.displayName(s))
 	cmds = append(cmds, c)
 	return m, tea.Batch(cmds...)
+}
+
+// actualShownID returns the session id the shown pane is really running right
+// now (from Claude's process registry), falling back to m.shown. Used so we
+// park a session under a window name that matches its content, even if it
+// /clear'd since the last poll.
+func (m *Model) actualShownID() string {
+	if m.shown == "" {
+		return ""
+	}
+	if pid, ok := tmux.SessionPanePID(); ok {
+		if actual := live.SessionForPID(m.store.ProjectsDir, pid); actual != "" {
+			return actual
+		}
+	}
+	return m.shown
 }
 
 // adoptShownID re-points tracking when the shown pane's session id changed

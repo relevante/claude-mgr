@@ -151,7 +151,7 @@ func (m Model) launchNew(cwd string) (tea.Model, tea.Cmd) {
 	}
 	tmpID := "new" + itoa(time.Now().UnixNano())
 	_ = tmux.Unzoom() // launching returns to the split
-	if err := tmux.LaunchNew(cwd, tmpID, m.shown); err != nil {
+	if err := tmux.LaunchNew(cwd, tmpID, m.actualShownID()); err != nil {
 		var c tea.Cmd
 		m.status, c = flash("error: " + err.Error())
 		return m, c
