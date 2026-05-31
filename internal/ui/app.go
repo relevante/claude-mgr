@@ -113,12 +113,13 @@ func New(store *index.Store) Model {
 	ti := textinput.New()
 	ti.Prompt = ""
 	return Model{
-		store:     store,
-		ov:        overlay.Load(overlay.DefaultPath()),
-		hideEmpty: true,
-		input:     ti,
-		wsPath:    workspace.DefaultPath(),
-		openIDs:   map[string]bool{},
+		store:      store,
+		ov:         overlay.Load(overlay.DefaultPath()),
+		hideEmpty:  true,
+		activeOnly: true, // default to the "active only" filter; f toggles to all
+		input:      ti,
+		wsPath:     workspace.DefaultPath(),
+		openIDs:    map[string]bool{},
 	}
 }
 

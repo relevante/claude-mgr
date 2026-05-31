@@ -36,9 +36,14 @@ func (m *Model) visible(s index.SessionMeta) bool {
 	return true
 }
 
-// isLive reports whether a session currently has activity anywhere — running in
-// our dashboard (status from capture) or in another terminal (external).
+// isLive reports whether a session currently has activity anywhere — open in
+// our dashboard this run, running in our tmux (status from capture), or live in
+// another terminal (external). openIDs is set synchronously on open/restore, so
+// restored sessions count as live immediately, before the first status poll.
 func (m *Model) isLive(s index.SessionMeta) bool {
+	if m.openIDs[s.SessionID] {
+		return true
+	}
 	if _, ok := m.statusByID8[tmux.Short(s.SessionID)]; ok {
 		return true
 	}
