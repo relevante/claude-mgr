@@ -65,7 +65,7 @@ func runController() error {
 	if err != nil {
 		return err
 	}
-	p := tea.NewProgram(ui.New(store), tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithReportFocus())
+	p := tea.NewProgram(ui.New(store), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err = p.Run()
 	return err
 }

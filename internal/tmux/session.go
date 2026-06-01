@@ -296,10 +296,6 @@ func BindLoadKeys() {
 	for _, k := range []string{"M-Down", "M-Up", "M-t", "M-'", "M-/"} {
 		_ = run("bind-key", "-n", k, "send-keys", "-t", pane, k)
 	}
-	// Forward terminal focus in/out events to the controller pane so the chime
-	// can tell whether our window is focused. No-op if the outer terminal (e.g.
-	// Apple Terminal) doesn't report focus.
-	_ = run("set-option", "-g", "focus-events", "on")
 }
 
 // SetControllerTitle labels the rail pane (shown in its header).

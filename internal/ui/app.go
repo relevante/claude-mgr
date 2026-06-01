@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"claude-mgr/internal/focus"
 	"claude-mgr/internal/index"
 	"claude-mgr/internal/live"
 	"claude-mgr/internal/overlay"
@@ -107,8 +109,8 @@ type Model struct {
 	// instantly instead of waiting for the poll. nil if watching is unavailable.
 	fsEvents <-chan struct{}
 
-	sound   string // selected completion chime ("" = off; persisted); cycled with 'b'
-	focused bool   // our terminal window has OS focus (from terminal focus events)
+	sound   string // selected completion chime ("" = off; persisted); cycled with 'c'
+	focused bool   // our terminal app is frontmost (refreshed by the status poll via lsappinfo)
 }
 
 // pendingNew tracks a brand-new session launched before its id is known.
@@ -169,6 +171,7 @@ type statusMsg struct {
 	external    map[string]string // id → "busy"/"idle" for sessions live elsewhere
 	resume      map[string]string // id8 → paneID showing the resume summary/full prompt
 	shownActual string            // the shown pane's current session id (may differ after /clear)
+	focused     bool              // our terminal app is frontmost (for the chime)
 }
 
 const (
@@ -252,7 +255,8 @@ func pollStatus(store *index.Store, shown string) tea.Cmd {
 		if pid, ok := tmux.SessionPanePID(); ok {
 			shownActual = live.SessionForPID(store.ProjectsDir, pid)
 		}
-		return statusMsg{byID8: byID8, external: external, resume: resume, shownActual: shownActual}
+		return statusMsg{byID8: byID8, external: external, resume: resume, shownActual: shownActual,
+			focused: focus.Focused(tmux.Socket)}
 	}
 }
 
@@ -318,6 +322,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(pollStatus(m.store, m.shown), waitForFS(m.fsEvents))
 
 	case statusMsg:
+		m.focused = msg.focused
 		if m.sound != "" && m.anyChimeWorthy(msg.byID8) {
 			sound.Play(m.sound) // an agent stopped working (done / needs you) off-screen
 		}
@@ -331,14 +336,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rebuild()
 		}
 		return m, answer
-
-	case tea.FocusMsg:
-		m.focused = true
-		return m, nil
-
-	case tea.BlurMsg:
-		m.focused = false
-		return m, nil
 
 	case fullscreenMsg:
 		if msg.id == m.shown {
@@ -671,6 +668,21 @@ func (m *Model) adoptShownID(actual string) {
 	m.rebuild()
 }
 
+// dbg appends a diagnostic line to a temp log when CLAUDE_MGR_DEBUG is set;
+// otherwise a no-op. Handy for settling chime/focus behavior against real runs.
+func dbg(format string, args ...any) {
+	if os.Getenv("CLAUDE_MGR_DEBUG") == "" {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(os.TempDir(), "claude-mgr-debug.log"),
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, time.Now().Format("15:04:05.000")+" "+format+"\n", args...)
+}
+
 // chimeForTransition reports whether a working→not-working transition warrants
 // the completion chime: the agent stopped (finished, or now needs you) and it's
 // either not the session you're viewing, or the window isn't focused.
@@ -688,13 +700,20 @@ func (m *Model) anyChimeWorthy(next map[string]index.Status) bool {
 	if m.shown != "" {
 		shownID8 = tmux.Short(m.shown)
 	}
+	worthy := false
 	for id8, st := range next {
+		prev := m.statusByID8[id8]
+		if prev != index.StatusWorking || st == index.StatusWorking {
+			continue
+		}
 		isShown := shownID8 != "" && id8 == shownID8
-		if chimeForTransition(m.statusByID8[id8], st, isShown, m.focused) {
-			return true
+		c := chimeForTransition(prev, st, isShown, m.focused)
+		dbg("stop id8=%s next=%v isShown=%v focused=%v shown8=%s -> chime=%v", id8, st, isShown, m.focused, shownID8, c)
+		if c {
+			worthy = true
 		}
 	}
-	return false
+	return worthy
 }
 
 // markCompleted flags a session that just went from working to idle while it
