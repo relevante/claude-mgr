@@ -238,11 +238,12 @@ func pollStatus(store *index.Store, shown string) tea.Cmd {
 				external[id] = st
 			}
 		}
+		// Always read the shown pane's real session id — even when we think nothing
+		// is shown — so an orphaned pane (failed adoption / reaped id) gets
+		// re-adopted instead of rendering as "running elsewhere".
 		shownActual := ""
-		if shown != "" {
-			if pid, ok := tmux.SessionPanePID(); ok {
-				shownActual = live.SessionForPID(store.ProjectsDir, pid)
-			}
+		if pid, ok := tmux.SessionPanePID(); ok {
+			shownActual = live.SessionForPID(store.ProjectsDir, pid)
 		}
 		return statusMsg{byID8: byID8, external: external, resume: resume, shownActual: shownActual}
 	}
@@ -609,23 +610,34 @@ func (m *Model) actualShownID() string {
 	return m.shown
 }
 
-// adoptShownID re-points tracking when the shown pane's session id changed
-// underneath us (e.g. /clear started a fresh session in the same process). The
-// old id becomes a normal dormant entry; the new one is the shown session — no
-// duplicate. Skipped during a pending new-session launch (handled separately).
+// shouldAdoptShown decides whether the shown pane's real session id (actual)
+// should replace what we currently think is shown. It adopts whenever the pane
+// is running a different live session than we're tracking — including when we
+// think nothing is shown (m.shown==""), which happens if a new-session adoption
+// failed or the shown id was reaped, orphaning a pane that's actually displayed.
+// Skipped mid new-session launch, which is handled by reconcilePendingNew.
+func shouldAdoptShown(actual, shown string, pendingNew bool) bool {
+	return actual != "" && actual != shown && !pendingNew
+}
+
+// adoptShownID re-points tracking to the session the shown pane is really
+// running (e.g. /clear started a fresh id in the same process, or we lost track
+// of it). The old id, if any, becomes a normal dormant entry — no duplicate.
 func (m *Model) adoptShownID(actual string) {
-	if actual == "" || m.shown == "" || actual == m.shown || m.pendingNew != nil {
+	if !shouldAdoptShown(actual, m.shown, m.pendingNew != nil) {
 		return
 	}
 	old := m.shown
 	m.shown = actual
-	delete(m.openIDs, old)
 	m.openIDs[actual] = true
-	if st, ok := m.statusByID8[tmux.Short(old)]; ok {
-		m.statusByID8[tmux.Short(actual)] = st // same pane, carry its status to the new id
+	if old != "" {
+		delete(m.openIDs, old)
+		if st, ok := m.statusByID8[tmux.Short(old)]; ok {
+			m.statusByID8[tmux.Short(actual)] = st // same pane, carry its status to the new id
+		}
+		delete(m.doneIDs, tmux.Short(old))
+		delete(m.liveMiss, old)
 	}
-	delete(m.doneIDs, tmux.Short(old))
-	delete(m.liveMiss, old)
 	m.persistWorkspace()
 	m.rebuild()
 }

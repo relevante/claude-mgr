@@ -7,6 +7,27 @@ import (
 	"claude-mgr/internal/index"
 )
 
+func TestShouldAdoptShown(t *testing.T) {
+	cases := []struct {
+		name          string
+		actual, shown string
+		pendingNew    bool
+		want          bool
+	}{
+		{"orphaned pane (shown lost) adopts", "cd7af4d1", "", false, true},
+		{"clear-style id change adopts", "newid", "oldid", false, true},
+		{"failed-adoption placeholder adopts", "cd7af4d1", "new123", false, true},
+		{"no session in pane does nothing", "", "oldid", false, false},
+		{"already tracking it does nothing", "cd7af4d1", "cd7af4d1", false, false},
+		{"mid new-session launch is skipped", "cd7af4d1", "", true, false},
+	}
+	for _, c := range cases {
+		if got := shouldAdoptShown(c.actual, c.shown, c.pendingNew); got != c.want {
+			t.Errorf("%s: shouldAdoptShown(%q,%q,%v)=%v, want %v", c.name, c.actual, c.shown, c.pendingNew, got, c.want)
+		}
+	}
+}
+
 func TestFindPendingNew(t *testing.T) {
 	since := time.Unix(1_000_000, 0)
 	after := since.Add(time.Second)
