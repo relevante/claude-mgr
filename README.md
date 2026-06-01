@@ -71,6 +71,7 @@ In the **rail**:
 | `/` | fuzzy-search across all threads |
 | `s` | toggle flat "recent activity" sort (across all projects) |
 | `f` | toggle "active only" filter |
+| `b` | toggle the completion chime (a `♪ on/off` indicator shows in the title bar) |
 | `r` | rename the selected thread · `n` new session · `p` pin · `a` archive (`A` show) · `e` show/hide empty |
 | `q` | detach (background — sessions keep running; `claude-mgr` re-attaches) |
 | `Q` | quit (tear down the dashboard; sessions stay resumable on disk) |
@@ -106,6 +107,14 @@ hollow); the glyph encodes **what**.
   summary vs full session" prompt, it auto-picks *full session as-is*.
 - **`/clear`.** If you `/clear` a session (which starts a new session id under the
   same process), the dashboard follows the change instead of showing a duplicate.
+- **Completion chime.** Toggle with `b`: a short, subtle sound plays whenever an
+  agent stops working (finishes, or stops to ask you something) — but only for a
+  session you're *not* currently watching in a focused window, so you're alerted
+  about background work without being pinged at what's in front of you. The sound
+  is a custom tone embedded in the binary; override it with `CLAUDE_MGR_SOUND=/path/to/sound`.
+  The setting persists. (The "even the viewed session, when you've switched apps"
+  case relies on terminal focus reporting, which some terminals — including Apple
+  Terminal — may not emit; off-screen sessions always chime regardless.)
 
 State lives under `~/.config/claude-mgr/`: `index.json` (session cache),
 `overlay.json` (names/pins/archives), `workspace.json` (open threads). Nothing is
