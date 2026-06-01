@@ -168,6 +168,34 @@ func (m Model) launchNew(cwd string) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(c, sendFullscreen(tmpID), scanCmd(m.store))
 }
 
+// pendingNewGrace is how long we keep trying to adopt a just-launched session
+// before giving up, so an unexpected cwd form can't pin pendingNew forever (which
+// would also block adoptShownID's pid-based self-heal). 15s is far longer than a
+// new session takes to write its first transcript line.
+const pendingNewGrace = 15 * time.Second
+
+// findPendingNew picks the freshly-launched session: same working directory and a
+// transcript written since the launch, latest activity winning. Paths are
+// compared after filepath.Clean so a trailing slash (e.g. from tab-completion)
+// can't cause a miss.
+func findPendingNew(all []index.SessionMeta, cwd string, since time.Time) (index.SessionMeta, bool) {
+	want := filepath.Clean(cwd)
+	var best index.SessionMeta
+	var found bool
+	for _, s := range all {
+		if filepath.Clean(s.Cwd) != want {
+			continue
+		}
+		if s.FileMtime.Before(since) {
+			continue
+		}
+		if !found || s.LastActive.After(best.LastActive) {
+			best, found = s, true
+		}
+	}
+	return best, found
+}
+
 // reconcilePendingNew looks for the transcript a freshly-launched session has
 // started writing and adopts its real id (renaming the placeholder so future
 // switching addresses the same process). Returns a flash cmd on adoption.
@@ -175,20 +203,13 @@ func (m *Model) reconcilePendingNew() tea.Cmd {
 	if m.pendingNew == nil {
 		return nil
 	}
-	var best index.SessionMeta
-	var found bool
-	for _, s := range m.all {
-		if s.Cwd != m.pendingNew.cwd {
-			continue
-		}
-		if s.FileMtime.Before(m.pendingNew.since) {
-			continue
-		}
-		if !found || s.LastActive.After(best.LastActive) {
-			best, found = s, true
-		}
-	}
+	best, found := findPendingNew(m.all, m.pendingNew.cwd, m.pendingNew.since)
 	if !found {
+		// Give up after a grace period so a never-matching launch can't pin
+		// pendingNew (and block adoptShownID, which then adopts via the pane pid).
+		if time.Since(m.pendingNew.since) > pendingNewGrace {
+			m.pendingNew = nil
+		}
 		return nil
 	}
 	tmpID := m.shown
