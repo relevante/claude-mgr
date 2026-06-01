@@ -14,9 +14,9 @@ const version = 1
 
 type State struct {
 	Version int      `json:"version"`
-	Open    []string `json:"open"`    // session ids open in the dashboard
-	Shown   string   `json:"shown"`   // the one displayed on the right
-	SoundOn bool     `json:"soundOn"` // completion chime enabled (global toggle)
+	Open    []string `json:"open"`  // session ids open in the dashboard
+	Shown   string   `json:"shown"` // the one displayed on the right
+	Sound   string   `json:"sound"` // selected completion chime name ("" = off)
 }
 
 // DefaultPath returns ~/.config/claude-mgr/workspace.json (honoring overrides).
@@ -47,8 +47,8 @@ func Load(path string) State {
 }
 
 // Save writes the workspace atomically.
-func Save(path string, open []string, shown string, soundOn bool) error {
-	s := State{Version: version, Open: open, Shown: shown, SoundOn: soundOn}
+func Save(path string, open []string, shown, sound string) error {
+	s := State{Version: version, Open: open, Shown: shown, Sound: sound}
 	raw, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err

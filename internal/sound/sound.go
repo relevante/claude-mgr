@@ -1,8 +1,7 @@
-// Package sound plays a short completion chime. The chime is a custom, subtle
-// tone embedded in the binary so it travels with the app and needs no external
-// asset; CLAUDE_MGR_SOUND overrides it with any afplay-readable file. Playback
-// is fire-and-forget via macOS afplay — failures are silently ignored, and rapid
-// calls are debounced so a burst of completions can't stack overlapping sounds.
+// Package sound plays the completion chime. The chime is selectable: a few
+// subtle macOS system sounds plus a custom tone embedded in the binary. Playback
+// is fire-and-forget via afplay — failures are silently ignored, and rapid calls
+// are debounced so a burst of completions can't stack overlapping sounds.
 package sound
 
 import (
@@ -17,32 +16,74 @@ import (
 //go:embed chime.wav
 var chime []byte
 
+// Choice is a selectable completion chime.
+type Choice struct {
+	Name string
+	path string // afplay file path; "" = the embedded custom tone
+}
+
+// Choices is the cycle order the 'b' key steps through (the UI adds "off").
+var Choices = []Choice{
+	{"Tink", "/System/Library/Sounds/Tink.aiff"},
+	{"Pop", "/System/Library/Sounds/Pop.aiff"},
+	{"Submarine", "/System/Library/Sounds/Submarine.aiff"},
+	{"Hero", "/System/Library/Sounds/Hero.aiff"},
+	{"Glass", "/System/Library/Sounds/Glass.aiff"},
+	{"Chime", ""}, // the embedded custom tone
+}
+
+// Next returns the next chime in the cycle: "" (off) → first → … → last → ""
+// again. An unknown name resets to off.
+func Next(current string) string {
+	if current == "" {
+		return Choices[0].Name
+	}
+	for i, c := range Choices {
+		if c.Name == current {
+			if i+1 < len(Choices) {
+				return Choices[i+1].Name
+			}
+			break
+		}
+	}
+	return ""
+}
+
 var (
 	once     sync.Once
-	file     string
+	embedded string
 	mu       sync.Mutex
 	lastPlay time.Time
 )
 
-// soundFile returns the path to play: a user override, else the embedded chime
-// written to a temp file once. "" if it can't be made available.
-func soundFile() string {
-	if p := os.Getenv("CLAUDE_MGR_SOUND"); p != "" {
-		return p
-	}
+// embeddedFile writes the embedded chime to a temp file once and returns it.
+func embeddedFile() string {
 	once.Do(func() {
 		p := filepath.Join(os.TempDir(), "claude-mgr-chime.wav")
-		if err := os.WriteFile(p, chime, 0o644); err == nil {
-			file = p
+		if os.WriteFile(p, chime, 0o644) == nil {
+			embedded = p
 		}
 	})
-	return file
+	return embedded
 }
 
-// Play sounds the chime asynchronously. No-op if unavailable; debounced so calls
-// within 250ms collapse to one.
-func Play() {
-	p := soundFile()
+// pathFor resolves a choice name to an afplay file path; "" if unknown.
+func pathFor(name string) string {
+	for _, c := range Choices {
+		if c.Name == name {
+			if c.path == "" {
+				return embeddedFile()
+			}
+			return c.path
+		}
+	}
+	return ""
+}
+
+// Play sounds the named chime asynchronously. No-op for ""/unknown; debounced so
+// calls within 250ms collapse to one.
+func Play(name string) {
+	p := pathFor(name)
 	if p == "" {
 		return
 	}

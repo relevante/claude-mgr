@@ -107,8 +107,8 @@ type Model struct {
 	// instantly instead of waiting for the poll. nil if watching is unavailable.
 	fsEvents <-chan struct{}
 
-	soundOn bool // completion chime enabled (persisted); toggled with 'b'
-	focused bool // our terminal window has OS focus (from terminal focus events)
+	sound   string // selected completion chime ("" = off; persisted); cycled with 'b'
+	focused bool   // our terminal window has OS focus (from terminal focus events)
 }
 
 // pendingNew tracks a brand-new session launched before its id is known.
@@ -130,8 +130,8 @@ func New(store *index.Store) Model {
 		input:      ti,
 		wsPath:     wsPath,
 		openIDs:    map[string]bool{},
-		soundOn:    workspace.Load(wsPath).SoundOn, // restore the chime setting
-		focused:    true,                           // assume focused until a blur says otherwise
+		sound:      workspace.Load(wsPath).Sound, // restore the chime selection
+		focused:    true,                         // assume focused until a blur says otherwise
 	}
 	// Event-drive status off the registry dir; fall back to polling on error.
 	if w, err := watch.NewRegistry(live.SessionsDir(store.ProjectsDir)); err == nil {
@@ -318,8 +318,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(pollStatus(m.store, m.shown), waitForFS(m.fsEvents))
 
 	case statusMsg:
-		if m.soundOn && m.anyChimeWorthy(msg.byID8) {
-			sound.Play() // an agent stopped working (done / needs you) off-screen
+		if m.sound != "" && m.anyChimeWorthy(msg.byID8) {
+			sound.Play(m.sound) // an agent stopped working (done / needs you) off-screen
 		}
 		m.markCompleted(msg.byID8) // background working→idle = "done, go check" (green)
 		m.statusByID8 = msg.byID8
@@ -483,14 +483,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.rebuild()
 		return m, c
 	case "b":
-		m.soundOn = !m.soundOn
+		m.sound = sound.Next(m.sound) // off → each sound → off
 		m.persistWorkspace()
 		var c tea.Cmd
-		if m.soundOn {
-			m.status, c = flash("🔔 completion chime: on")
-			sound.Play() // preview so you hear what you just enabled
+		if m.sound == "" {
+			m.status, c = flash("🔕 chime: off")
 		} else {
-			m.status, c = flash("🔕 completion chime: off")
+			m.status, c = flash("🔔 chime: " + m.sound)
+			sound.Play(m.sound) // preview the newly-selected sound
 		}
 		return m, c
 	}
@@ -823,7 +823,7 @@ func (m *Model) persistWorkspace() {
 		open = append(open, id)
 	}
 	sort.Strings(open)
-	_ = workspace.Save(m.wsPath, open, m.shown, m.soundOn)
+	_ = workspace.Save(m.wsPath, open, m.shown, m.sound)
 }
 
 // restoreWorkspace relaunches the sessions saved from a previous run as parked
