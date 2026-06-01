@@ -71,7 +71,7 @@ In the **rail**:
 | `/` | fuzzy-search across all threads |
 | `s` | toggle flat "recent activity" sort (across all projects) |
 | `f` | toggle "active only" filter |
-| `b` | cycle the completion chime: off → each sound → off (the current `♪ <sound>` shows in the title bar) |
+| `c` | cycle the completion chime: off → each sound → off (the current `♪ <sound>` shows in the title bar) |
 | `r` | rename the selected thread · `n` new session · `p` pin · `a` archive (`A` show) · `e` show/hide empty |
 | `q` | detach (background — sessions keep running; `claude-mgr` re-attaches) |
 | `Q` | quit (tear down the dashboard; sessions stay resumable on disk) |
@@ -110,7 +110,7 @@ hollow); the glyph encodes **what**.
 - **Completion chime.** A short, subtle sound plays whenever an agent stops
   working (finishes, or stops to ask you something) — but only for a session
   you're *not* currently watching in a focused window, so you're alerted about
-  background work without being pinged at what's in front of you. Press `b` to
+  background work without being pinged at what's in front of you. Press `c` to
   cycle through the sounds (a handful of subtle macOS system sounds plus a custom
   tone) and off; the current one shows in the title bar and the choice persists.
   (The "even the viewed session, when you've switched apps" case relies on

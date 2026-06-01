@@ -389,7 +389,7 @@ func (m Model) footer(w int) string {
 	if m.status != "" {
 		return footStyle.Render(truncate(m.status, w))
 	}
-	help := "↵ open · / find · s recent · f active · b chime · r name · n new · q detach · Q quit"
+	help := "↵ open · / find · s recent · f active · c chime · r name · n new · q detach · Q quit"
 	return footStyle.Render(truncate(help, w))
 }
 

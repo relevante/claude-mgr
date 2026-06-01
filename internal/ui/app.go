@@ -482,7 +482,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.rebuild()
 		return m, c
-	case "b":
+	case "c":
 		m.sound = sound.Next(m.sound) // off → each sound → off
 		m.persistWorkspace()
 		var c tea.Cmd
