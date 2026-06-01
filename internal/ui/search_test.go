@@ -7,6 +7,28 @@ import (
 	"claude-mgr/internal/index"
 )
 
+func TestChimeForTransition(t *testing.T) {
+	W, I, P := index.StatusWorking, index.StatusIdle, index.StatusPermission
+	cases := []struct {
+		name                   string
+		prev, next             index.Status
+		isShown, focused, want bool
+	}{
+		{"background working→idle chimes", W, I, false, true, true},
+		{"background working→permission chimes", W, P, false, true, true},
+		{"viewed + focused stays silent", W, I, true, true, false},
+		{"viewed but window unfocused chimes", W, I, true, false, true},
+		{"still working: no chime", W, W, false, true, false},
+		{"was idle (no transition): no chime", I, I, false, true, false},
+		{"idle→working (started): no chime", I, W, false, true, false},
+	}
+	for _, c := range cases {
+		if got := chimeForTransition(c.prev, c.next, c.isShown, c.focused); got != c.want {
+			t.Errorf("%s: got %v want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func TestShouldAdoptShown(t *testing.T) {
 	cases := []struct {
 		name          string

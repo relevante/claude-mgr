@@ -15,6 +15,7 @@ import (
 	"claude-mgr/internal/index"
 	"claude-mgr/internal/live"
 	"claude-mgr/internal/overlay"
+	"claude-mgr/internal/sound"
 	"claude-mgr/internal/status"
 	"claude-mgr/internal/tmux"
 	"claude-mgr/internal/watch"
@@ -105,6 +106,9 @@ type Model struct {
 	// fsEvents fires when the session registry changes, so status refreshes
 	// instantly instead of waiting for the poll. nil if watching is unavailable.
 	fsEvents <-chan struct{}
+
+	soundOn bool // completion chime enabled (persisted); toggled with 'b'
+	focused bool // our terminal window has OS focus (from terminal focus events)
 }
 
 // pendingNew tracks a brand-new session launched before its id is known.
@@ -117,14 +121,17 @@ type pendingNew struct {
 func New(store *index.Store) Model {
 	ti := textinput.New()
 	ti.Prompt = ""
+	wsPath := workspace.DefaultPath()
 	m := Model{
 		store:      store,
 		ov:         overlay.Load(overlay.DefaultPath()),
 		hideEmpty:  true,
 		activeOnly: true, // default to the "active only" filter; f toggles to all
 		input:      ti,
-		wsPath:     workspace.DefaultPath(),
+		wsPath:     wsPath,
 		openIDs:    map[string]bool{},
+		soundOn:    workspace.Load(wsPath).SoundOn, // restore the chime setting
+		focused:    true,                           // assume focused until a blur says otherwise
 	}
 	// Event-drive status off the registry dir; fall back to polling on error.
 	if w, err := watch.NewRegistry(live.SessionsDir(store.ProjectsDir)); err == nil {
@@ -311,6 +318,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(pollStatus(m.store, m.shown), waitForFS(m.fsEvents))
 
 	case statusMsg:
+		if m.soundOn && m.anyChimeWorthy(msg.byID8) {
+			sound.Play() // an agent stopped working (done / needs you) off-screen
+		}
 		m.markCompleted(msg.byID8) // background working→idle = "done, go check" (green)
 		m.statusByID8 = msg.byID8
 		m.externalStatus = msg.external
@@ -321,6 +331,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rebuild()
 		}
 		return m, answer
+
+	case tea.FocusMsg:
+		m.focused = true
+		return m, nil
+
+	case tea.BlurMsg:
+		m.focused = false
+		return m, nil
 
 	case fullscreenMsg:
 		if msg.id == m.shown {
@@ -463,6 +481,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status, c = flash("sort: by project")
 		}
 		m.rebuild()
+		return m, c
+	case "b":
+		m.soundOn = !m.soundOn
+		m.persistWorkspace()
+		var c tea.Cmd
+		if m.soundOn {
+			m.status, c = flash("🔔 completion chime: on")
+			sound.Play() // preview so you hear what you just enabled
+		} else {
+			m.status, c = flash("🔕 completion chime: off")
+		}
 		return m, c
 	}
 	return m, nil
@@ -642,6 +671,32 @@ func (m *Model) adoptShownID(actual string) {
 	m.rebuild()
 }
 
+// chimeForTransition reports whether a working→not-working transition warrants
+// the completion chime: the agent stopped (finished, or now needs you) and it's
+// either not the session you're viewing, or the window isn't focused.
+func chimeForTransition(prev, next index.Status, isShown, focused bool) bool {
+	if prev != index.StatusWorking || next == index.StatusWorking {
+		return false
+	}
+	return !isShown || !focused
+}
+
+// anyChimeWorthy reports whether any session just stopped working in a way that
+// should sound the chime, comparing incoming statuses to the current ones.
+func (m *Model) anyChimeWorthy(next map[string]index.Status) bool {
+	shownID8 := ""
+	if m.shown != "" {
+		shownID8 = tmux.Short(m.shown)
+	}
+	for id8, st := range next {
+		isShown := shownID8 != "" && id8 == shownID8
+		if chimeForTransition(m.statusByID8[id8], st, isShown, m.focused) {
+			return true
+		}
+	}
+	return false
+}
+
 // markCompleted flags a session that just went from working to idle while it
 // was NOT the shown one — i.e. it finished a run in the background. The flag
 // (rendered as a green dot) clears when the session is next opened.
@@ -768,7 +823,7 @@ func (m *Model) persistWorkspace() {
 		open = append(open, id)
 	}
 	sort.Strings(open)
-	_ = workspace.Save(m.wsPath, open, m.shown)
+	_ = workspace.Save(m.wsPath, open, m.shown, m.soundOn)
 }
 
 // restoreWorkspace relaunches the sessions saved from a previous run as parked

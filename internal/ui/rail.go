@@ -170,6 +170,22 @@ func (m *Model) clampScroll() {
 
 // --- view ---
 
+// titleBar lays out the app label on the left and a right-aligned chime
+// indicator (♪ on / ♪ off), spaced to fill the inner width (the title style pads
+// one column each side).
+func titleBar(label string, soundOn bool, w int) string {
+	ind := "♪ off"
+	if soundOn {
+		ind = "♪ on"
+	}
+	inner := w - 2
+	gap := inner - lipgloss.Width(label) - lipgloss.Width(ind)
+	if gap < 1 {
+		return label // too narrow for the indicator; just show the label
+	}
+	return label + strings.Repeat(" ", gap) + ind
+}
+
 func (m Model) View() string {
 	if m.width == 0 {
 		return "loading…"
@@ -177,7 +193,7 @@ func (m Model) View() string {
 	w := m.width
 
 	var b strings.Builder
-	b.WriteString(titleStyle.Width(w).Render("claude-mgr"))
+	b.WriteString(titleStyle.Width(w).Render(titleBar("claude-mgr", m.soundOn, w)))
 	b.WriteByte('\n')
 
 	if m.err != nil {
