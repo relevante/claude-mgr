@@ -367,11 +367,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// pane is focused (via a tmux send-keys binding), so it works in any mode.
 	switch msg.String() {
 	case "alt+down":
-		m.moveCursor(1)
-		return m.showSelected()
+		if m.moveWrap(1) {
+			return m.showSelected()
+		}
+		return m, nil
 	case "alt+up":
-		m.moveCursor(-1)
-		return m.showSelected()
+		if m.moveWrap(-1) {
+			return m.showSelected()
+		}
+		return m, nil
 	case "alt+'":
 		if m.jumpAttention(-1) {
 			return m.showSelected()

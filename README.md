@@ -54,8 +54,8 @@ These work **from anywhere**, even while typing in the Claude pane (`Option` =
 | Key | Action |
 |-----|--------|
 | `Option+Tab` (or `Option+L`) | toggle focus between the rail and the Claude pane |
-| `Option+↑` / `Option+↓` | switch to the previous / next session and load it on the right |
-| `Option+'` / `Option+/` | jump to the previous / next session needing attention (working, your-turn, or done) |
+| `Option+↑` / `Option+↓` | switch to the previous / next session and load it on the right (wraps around) |
+| `Option+'` / `Option+/` | jump to the previous / next session needing attention — working, your-turn, or done (wraps around) |
 | `Option+Z` | zoom the Claude pane fullscreen / back |
 | `Option+T` | open a new terminal window in the current session's project directory |
 

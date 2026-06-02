@@ -66,6 +66,33 @@ func (m *Model) moveBy(dir, n int) {
 	}
 }
 
+// nextMatch scans from the cursor in direction d, WRAPPING around the ends, and
+// returns the first other row index satisfying ok. found=false if no other row
+// qualifies (so a single match can't resolve to itself).
+func (m *Model) nextMatch(d int, ok func(i int) bool) (int, bool) {
+	n := len(m.rows)
+	i := m.cursor
+	for s := 0; s < n-1; s++ {
+		i = (i + d + n) % n
+		if ok(i) {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// moveWrap moves the cursor to the next/prev session row, wrapping at the ends.
+// Reports whether it landed on a (different) session row.
+func (m *Model) moveWrap(d int) bool {
+	i, ok := m.nextMatch(d, func(i int) bool { return m.rows[i].kind == rowSession })
+	if ok {
+		m.cursor = i
+		m.syncSelection()
+		m.clampScroll()
+	}
+	return ok
+}
+
 // pageStep is how far Ctrl-d/Ctrl-u (and PgUp/PgDn) jump — half a screen.
 func (m *Model) pageStep() int {
 	if s := m.viewportHeight() / 2; s > 1 {
@@ -86,22 +113,19 @@ func (m *Model) needsAttention(s index.SessionMeta) bool {
 	return m.doneIDs[id8]
 }
 
-// jumpAttention moves the cursor to the next/prev session needing attention.
-// It reports whether the cursor actually moved (false = none in that direction).
+// jumpAttention moves the cursor to the next/prev session needing attention,
+// WRAPPING around the ends. Reports whether it moved to a (different) such
+// session (false = none other than where we already are).
 func (m *Model) jumpAttention(dir int) bool {
-	i := m.cursor
-	for {
-		i += dir
-		if i < 0 || i >= len(m.rows) {
-			return false // none in that direction
-		}
-		if m.rows[i].kind == rowSession && m.needsAttention(m.rows[i].sess) {
-			m.cursor = i
-			m.syncSelection()
-			m.clampScroll()
-			return true
-		}
+	i, ok := m.nextMatch(dir, func(i int) bool {
+		return m.rows[i].kind == rowSession && m.needsAttention(m.rows[i].sess)
+	})
+	if ok {
+		m.cursor = i
+		m.syncSelection()
+		m.clampScroll()
 	}
+	return ok
 }
 
 func (m *Model) firstSessionRow() int {
