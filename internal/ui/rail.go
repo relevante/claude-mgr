@@ -383,8 +383,15 @@ func (m Model) footer(w int) string {
 		return quitConfirm.Width(w).Render(truncate("QUIT & close all sessions?  y = yes · any key = no", w))
 	}
 	if m.mode != modeNormal {
-		// Show the active text input (search/rename/new).
-		return inputStyle.Render(truncate(m.input.Prompt+m.input.Value()+"▏", w))
+		// Show the active text input (search/rename/new). Use the textinput's own
+		// View so the cursor renders at its real position and the field scrolls
+		// horizontally for long values — enabling inline editing, not just at the
+		// end. (Width is the value area, after the prompt.)
+		m.input.Width = w - lipgloss.Width(m.input.Prompt) - 1
+		if m.input.Width < 1 {
+			m.input.Width = 1
+		}
+		return inputStyle.Render(m.input.View())
 	}
 	if m.status != "" {
 		return footStyle.Render(truncate(m.status, w))
