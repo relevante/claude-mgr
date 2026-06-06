@@ -37,8 +37,17 @@ func EnsureSession(controllerCmd string) error {
 // configure applies global options and pane-navigation bindings. Best-effort:
 // individual failures are ignored so an odd tmux build can't block startup.
 func configure() {
-	opts := [][]string{
+	for _, o := range configureCommands() {
+		_ = run(o...)
+	}
+}
+
+func configureCommands() [][]string {
+	return [][]string{
 		{"set-option", "-g", "mouse", "on"},
+		// Mouse selections in Codex land in tmux copy-mode; pipe them to the
+		// macOS pasteboard so release-to-copy works like Apple Terminal.
+		{"set-option", "-s", "copy-command", "pbcopy"},
 		{"set-option", "-g", "status", "off"},
 		{"set-option", "-g", "escape-time", "10"},
 		{"set-option", "-g", "history-limit", "50000"},
@@ -56,9 +65,6 @@ func configure() {
 		{"bind-key", "-n", "M-Tab", "select-pane", "-t", ":.+"},
 		{"bind-key", "-n", "M-l", "select-pane", "-t", ":.+"},
 		{"bind-key", "-n", "M-z", "resize-pane", "-Z"},
-	}
-	for _, o := range opts {
-		_ = run(o...)
 	}
 }
 

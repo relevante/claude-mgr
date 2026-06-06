@@ -121,6 +121,8 @@ hollow); the glyph encodes **what**.
   (The "even the viewed session, when you've switched apps" case relies on
   terminal focus reporting, which some terminals — including Apple Terminal — may
   not emit; off-screen sessions always chime regardless.)
+- **Clipboard bridge.** Mouse selections inside tmux copy-mode are piped through
+  `pbcopy`, so selecting text in agent panes copies it to the macOS pasteboard.
 
 State lives under `~/.config/claude-mgr/`: `index.json` (session cache),
 `overlay.json` (names/pins/archives), `workspace.json` (open threads). Nothing is

@@ -69,3 +69,13 @@ func TestSessionKey(t *testing.T) {
 		t.Fatal("Codex keys collided for ids sharing the first 8 chars")
 	}
 }
+
+func TestConfigureSetsCopyCommand(t *testing.T) {
+	for _, cmd := range configureCommands() {
+		if len(cmd) == 4 && cmd[0] == "set-option" && cmd[1] == "-s" &&
+			cmd[2] == "copy-command" && cmd[3] == "pbcopy" {
+			return
+		}
+	}
+	t.Fatal("configureCommands missing server copy-command pbcopy")
+}
