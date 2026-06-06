@@ -5,6 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+
 	"claude-mgr/internal/index"
 	"claude-mgr/internal/overlay"
 )
@@ -151,6 +154,30 @@ func TestNewPromptAppToggle(t *testing.T) {
 		}
 		if got := newPrompt(c.start); got != c.wantPrompt {
 			t.Errorf("%s: newPrompt=%q, want %q", c.name, got, c.wantPrompt)
+		}
+	}
+}
+
+func TestNewPromptAppToggleKey(t *testing.T) {
+	cases := []struct {
+		name       string
+		key        tea.KeyType
+		wantApp    string
+		wantPrompt string
+	}{
+		{"ctrl+n toggles", tea.KeyCtrlN, index.AppCodex, "new ⬡ in: "},
+		{"ctrl+a does not toggle", tea.KeyCtrlA, index.AppClaude, "new ✳ in: "},
+	}
+	for _, c := range cases {
+		m := Model{mode: modeNew, newApp: index.AppClaude, input: textinput.New()}
+		m.input.Prompt = newPrompt(m.newApp)
+		next, _ := m.handleInputKey(tea.KeyMsg{Type: c.key})
+		got := next.(Model)
+		if got.newApp != c.wantApp {
+			t.Errorf("%s: newApp=%q, want %q", c.name, got.newApp, c.wantApp)
+		}
+		if got.input.Prompt != c.wantPrompt {
+			t.Errorf("%s: prompt=%q, want %q", c.name, got.input.Prompt, c.wantPrompt)
 		}
 	}
 }

@@ -156,7 +156,7 @@ numbers).
 - `✳`/`⬡` are ambiguous-width — verify rendering in Apple Terminal before
   settling (fallbacks: `✲ ✱ ⏣ ⎔`). The rail already uses `⚠` successfully.
 - Same mark in: the `n` new-session prompt (one key toggles app — `tab` is
-  taken by dir completion; suggest `ctrl+a` or similar, shown inline like
+  taken by dir completion; use `ctrl+n`, shown inline like
   `new ✳ in: …`), the shown-pane title, search rows.
 - Group headers stay app-agnostic (a project can host both).
 - Possible later refinement (Nick is open to it): mark only the minority app.

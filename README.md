@@ -74,7 +74,7 @@ In the **rail**:
 | `s` | toggle flat "recent activity" sort (across all projects) |
 | `f` | toggle "active only" filter |
 | `c` | cycle the completion chime: off → each sound → off (the current `♪ <sound>` shows in the title bar) |
-| `r` | rename the selected thread · `n` new session (`Ctrl+A` toggles Claude/Codex in the prompt) · `p` pin · `a` archive (`A` show) · `e` show/hide empty |
+| `r` | rename the selected thread · `n` new session (`Ctrl+N` toggles Claude/Codex in the prompt) · `p` pin · `a` archive (`A` show) · `e` show/hide empty |
 | `q` | detach (background — sessions keep running; `claude-mgr` re-attaches) |
 | `Q` | quit (tear down the dashboard; sessions stay resumable on disk) |
 

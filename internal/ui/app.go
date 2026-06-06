@@ -603,7 +603,7 @@ func (m Model) enterInput(mode inputMode, value, prompt string) (tea.Model, tea.
 
 func (m Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "ctrl+a":
+	case "ctrl+n":
 		if m.mode == modeNew {
 			m.newApp = toggleApp(m.newApp)
 			m.input.Prompt = newPrompt(m.newApp)
