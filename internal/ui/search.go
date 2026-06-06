@@ -7,7 +7,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/sahilm/fuzzy"
 
 	"claude-mgr/internal/index"
 	"claude-mgr/internal/tmux"
@@ -61,8 +60,8 @@ func (m *Model) isLive(s index.SessionMeta) bool {
 
 // rebuild regenerates the flat row list from m.all, honoring filters and the
 // active search query, then restores the cursor onto the previously-selected
-// session. Search filters the normal grouped view instead of switching to a
-// fuzzy-ranked flat list, so directory context stays visible while typing.
+// session. Search filters the normal grouped view with substring matches, so
+// directory context stays visible while typing.
 func (m *Model) rebuild() {
 	switch {
 	case strings.TrimSpace(m.query) != "":
@@ -132,7 +131,7 @@ func (m *Model) recentRows() []row {
 	return rows
 }
 
-// searchRows fuzzy-matches visible sessions against the title and project path,
+// searchRows substring-matches visible sessions against title and project path,
 // then renders the matches in the same grouped shape as the default list.
 func (m *Model) searchRows() []row {
 	query := strings.TrimSpace(m.query)
@@ -155,19 +154,25 @@ func (m *Model) searchRows() []row {
 }
 
 func (m *Model) searchMatches(s index.SessionMeta, query string) bool {
-	if query == "" {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
 		return true
 	}
-	return len(fuzzy.FindNoSort(query, []string{m.searchHaystack(s)})) > 0
+	for _, field := range m.searchFields(s) {
+		if strings.Contains(strings.ToLower(field), q) {
+			return true
+		}
+	}
+	return false
 }
 
-func (m *Model) searchHaystack(s index.SessionMeta) string {
-	return strings.Join([]string{
+func (m *Model) searchFields(s index.SessionMeta) []string {
+	return []string{
 		m.displayName(s),
 		s.ProjectLabel(),
 		s.Cwd,
 		s.ProjectDir,
-	}, " · ")
+	}
 }
 
 // --- new session launch + adoption ---

@@ -173,6 +173,29 @@ func TestSearchRowsMatchDirectoryWhenTitleDoesNot(t *testing.T) {
 	}
 }
 
+func TestSearchRowsDoNotUseSubsequenceMatches(t *testing.T) {
+	base := time.Unix(1_000_000, 0)
+	m := &Model{
+		ov:    overlay.Load(filepath.Join(t.TempDir(), "overlay.json")),
+		query: "mill",
+		all: []index.SessionMeta{
+			{SessionID: "macbook", AutoTitle: "Diagnose MacBook display freezing after iPad connection", Cwd: "/Users/j/work/claude-misc/claude-mgr", LastActive: base.Add(3 * time.Minute)},
+			{SessionID: "millbrook", AutoTitle: "Recommend fast-growing trees for Millbrook property", Cwd: "/Users/j/work/home/trees", LastActive: base.Add(2 * time.Minute)},
+			{SessionID: "mill", AutoTitle: "Set up Haas mill fixturing for plastic case production", Cwd: "/Users/j/work/shop/mill", LastActive: base.Add(time.Minute)},
+		},
+	}
+	got := rowSummary(m.searchRows())
+	want := []string{
+		"h:home/trees:1",
+		"s:millbrook",
+		"h:shop/mill:1",
+		"s:mill",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("rows:\n%v\nwant:\n%v", got, want)
+	}
+}
+
 func TestVisibleHidesCodexArchived(t *testing.T) {
 	m := &Model{ov: overlay.Load(filepath.Join(t.TempDir(), "overlay.json"))}
 	s := index.SessionMeta{
