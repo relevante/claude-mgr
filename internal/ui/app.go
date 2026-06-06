@@ -106,7 +106,7 @@ type Model struct {
 	externalStatus map[string]string       // ids live in other terminals → "busy"/"idle"
 	doneIDs        map[string]bool         // id8 → finished in the background since last viewed
 
-	// fsEvents fires when the session registry changes, so status refreshes
+	// fsEvents fires when a session activity source changes, so status refreshes
 	// instantly instead of waiting for the poll. nil if watching is unavailable.
 	fsEvents <-chan struct{}
 
@@ -137,11 +137,38 @@ func New(store *index.Store) Model {
 		sound:      workspace.Load(wsPath).Sound, // restore the chime selection
 		focused:    true,                         // assume focused until a blur says otherwise
 	}
-	// Event-drive status off the registry dir; fall back to polling on error.
+	// Event-drive status off Claude's registry and Codex's WAL; fall back to
+	// polling on error.
+	var events []<-chan struct{}
 	if w, err := watch.NewRegistry(live.SessionsDir(store.ProjectsDir)); err == nil {
-		m.fsEvents = w.Events()
+		events = append(events, w.Events())
 	}
+	if store.CodexStatePath != "" {
+		if w, err := watch.NewFile(store.CodexStatePath + "-wal"); err == nil {
+			events = append(events, w.Events())
+		}
+	}
+	m.fsEvents = mergeEvents(events...)
 	return m
+}
+
+func mergeEvents(chans ...<-chan struct{}) <-chan struct{} {
+	if len(chans) == 0 {
+		return nil
+	}
+	out := make(chan struct{}, 1)
+	for _, ch := range chans {
+		c := ch
+		go func() {
+			for range c {
+				select {
+				case out <- struct{}{}:
+				default:
+				}
+			}
+		}()
+	}
+	return out
 }
 
 func (m Model) Init() tea.Cmd {
@@ -209,16 +236,29 @@ func waitForFS(ch <-chan struct{}) tea.Cmd {
 // authoritative and real-time; we only scrape the pane as a fallback (a session
 // not yet in the registry) and to refine a generic "waiting" into a specific
 // permission ⚠ and to spot the resume prompt.
-func pollStatus(store *index.Store, shown string) tea.Cmd {
+func pollStatus(store *index.Store, shown string, apps map[string]string) tea.Cmd {
 	return func() tea.Msg {
 		reg := live.Statuses(store.ProjectsDir)
 		regByShort := make(map[string]index.Status, len(reg))
 		for id, st := range reg {
 			regByShort[tmux.Short(id)] = status.FromRegistry(st)
 		}
+		appByShort := make(map[string]string, len(apps))
+		for id, app := range apps {
+			appByShort[tmux.Short(id)] = normalizeApp(app)
+		}
+		appForShort := func(id8 string) string {
+			if app := appByShort[id8]; app != "" {
+				return app
+			}
+			return index.AppClaude
+		}
 		// classify resolves a pane's status: prefer the registry flag, fall back to
 		// pane text; a confirmed permission dialog upgrades waiting (◐) → ⚠.
 		classify := func(id8, txt string) index.Status {
+			if appForShort(id8) == index.AppCodex {
+				return status.ResolveApp(index.AppCodex, index.StatusIdle, false, txt)
+			}
 			st, ok := regByShort[id8]
 			return status.Resolve(st, ok, txt)
 		}
@@ -229,7 +269,7 @@ func pollStatus(store *index.Store, shown string) tea.Cmd {
 			for _, p := range parked {
 				txt, _ := tmux.CapturePane(p.PaneID, 8)
 				byID8[p.ID8] = classify(p.ID8, txt)
-				if status.IsResumePrompt(txt) {
+				if appForShort(p.ID8) == index.AppClaude && status.IsResumePrompt(txt) {
 					resume[p.ID8] = p.PaneID
 				}
 			}
@@ -237,7 +277,7 @@ func pollStatus(store *index.Store, shown string) tea.Cmd {
 		if shown != "" {
 			if txt, err := tmux.CaptureSession(8); err == nil {
 				byID8[tmux.Short(shown)] = classify(tmux.Short(shown), txt)
-				if status.IsResumePrompt(txt) {
+				if appForShort(tmux.Short(shown)) == index.AppClaude && status.IsResumePrompt(txt) {
 					if pid, ok := tmux.SessionPaneID(); ok {
 						resume[tmux.Short(shown)] = pid
 					}
@@ -250,12 +290,20 @@ func pollStatus(store *index.Store, shown string) tea.Cmd {
 				external[id] = st
 			}
 		}
+		for id, st := range live.CodexStatuses() {
+			if _, inTmux := byID8[tmux.Short(id)]; !inTmux {
+				external[id] = st
+			}
+		}
 		// Always read the shown pane's real session id — even when we think nothing
 		// is shown — so an orphaned pane (failed adoption / reaped id) gets
 		// re-adopted instead of rendering as "running elsewhere".
 		shownActual := ""
 		if pid, ok := tmux.SessionPanePID(); ok {
 			shownActual = live.SessionForPID(store.ProjectsDir, pid)
+			if shownActual == "" {
+				shownActual = live.CodexSessionForPID(pid)
+			}
 		}
 		return statusMsg{byID8: byID8, external: external, resume: resume, shownActual: shownActual,
 			focused: focus.Focused(tmux.Socket)}
@@ -320,11 +368,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(scanCmd(m.store), tick())
 
 	case statusTickMsg:
-		return m, tea.Batch(pollStatus(m.store, m.shown), statusTick(m.statusInterval()))
+		return m, tea.Batch(pollStatus(m.store, m.shown, m.appMap()), statusTick(m.statusInterval()))
 
 	case fsEventMsg:
-		// A registry file changed — refresh status now and keep listening.
-		return m, tea.Batch(pollStatus(m.store, m.shown), waitForFS(m.fsEvents))
+		// A watched activity source changed — refresh status now and keep listening.
+		return m, tea.Batch(pollStatus(m.store, m.shown, m.appMap()), waitForFS(m.fsEvents))
 
 	case statusMsg:
 		m.focused = msg.focused
@@ -659,6 +707,9 @@ func (m *Model) actualShownID() string {
 		if actual := live.SessionForPID(m.store.ProjectsDir, pid); actual != "" {
 			return actual
 		}
+		if actual := live.CodexSessionForPID(pid); actual != "" {
+			return actual
+		}
 	}
 	return m.shown
 }
@@ -888,6 +939,22 @@ func (m *Model) appForID(id string) string {
 	return index.AppClaude
 }
 
+func (m *Model) appMap() map[string]string {
+	apps := map[string]string{}
+	for _, s := range m.all {
+		apps[s.SessionID] = s.AppName()
+	}
+	if m.pendingNew != nil && m.shown != "" {
+		apps[m.shown] = m.pendingNew.app
+	}
+	for id := range m.openIDs {
+		if apps[id] == "" {
+			apps[id] = m.appForID(id)
+		}
+	}
+	return apps
+}
+
 // restoreWorkspace relaunches the sessions saved from a previous run as parked
 // windows and shows the last-shown one. Runs once, after the first scan.
 func (m *Model) restoreWorkspace() tea.Cmd {
@@ -902,6 +969,7 @@ func (m *Model) restoreWorkspace() tea.Cmd {
 	// Don't re-resume a thread that's already running in another terminal —
 	// two processes on one session id corrupt the transcript.
 	liveElsewhere := live.Sessions(m.store.ProjectsDir)
+	codexElsewhere := live.CodexSessions()
 	var refs []tmux.SessionRef
 	for _, id := range saved.Open {
 		s, ok := byID[id]
@@ -910,6 +978,9 @@ func (m *Model) restoreWorkspace() tea.Cmd {
 		}
 		app := s.AppName()
 		if app == index.AppClaude && liveElsewhere[id] {
+			continue // already live elsewhere
+		}
+		if app == index.AppCodex && codexElsewhere[id] {
 			continue // already live elsewhere
 		}
 		if savedApp := saved.App(id); savedApp != index.AppClaude && app == index.AppClaude {

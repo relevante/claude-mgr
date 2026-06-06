@@ -1,4 +1,4 @@
-// Package status classifies what a Claude session is doing by scraping the
+// Package status classifies what an agent session is doing by scraping the
 // bottom of its tmux pane. The hint line is the stable discriminator — the
 // spinner glyph/verb flickers and must not be matched (see spike/FINDINGS.md).
 package status
@@ -29,10 +29,33 @@ var Default = Markers{
 	Permission: []string{"Enter to confirm", "Do you want to proceed", "❯ 1. Yes", "❯ 1. Allow"},
 }
 
+// Codex markers verified during the Codex support spike (2026-06-05).
+var Codex = Markers{
+	Working: []string{
+		"Working (",
+		"Running ",
+		"Reviewing approval request",
+		"esc to interrupt",
+	},
+	Permission: []string{
+		"Would you like to run the following command?",
+		"Do you trust the contents of this directory?",
+		"Press enter to confirm or esc to cancel",
+		"Press enter to continue",
+	},
+}
+
 // Classify maps captured pane text to a status. Working and Permission take
 // priority; absent any marker the pane is treated as Idle.
 func Classify(paneText string) index.Status {
 	return Default.Classify(paneText)
+}
+
+func ClassifyApp(app, paneText string) index.Status {
+	if app == index.AppCodex {
+		return Codex.Classify(paneText)
+	}
+	return Classify(paneText)
 }
 
 func (m Markers) Classify(paneText string) index.Status {
@@ -78,6 +101,13 @@ func Resolve(reg index.Status, regKnown bool, paneText string) index.Status {
 		st = index.StatusPermission
 	}
 	return st
+}
+
+func ResolveApp(app string, reg index.Status, regKnown bool, paneText string) index.Status {
+	if app != index.AppCodex {
+		return Resolve(reg, regKnown, paneText)
+	}
+	return ClassifyApp(app, paneText)
 }
 
 // IsResumePrompt reports whether the pane is showing Claude's "resume from

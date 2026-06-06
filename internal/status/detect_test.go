@@ -58,6 +58,52 @@ func TestClassify(t *testing.T) {
 	}
 }
 
+func TestClassifyAppCodex(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+		want index.Status
+	}{
+		{
+			name: "working",
+			text: "Working (15s • esc to interrupt)",
+			want: index.StatusWorking,
+		},
+		{
+			name: "running command",
+			text: "Running python3 -c 'print(42)'",
+			want: index.StatusWorking,
+		},
+		{
+			name: "approval review is working",
+			text: "Reviewing approval request",
+			want: index.StatusWorking,
+		},
+		{
+			name: "command approval",
+			text: "Would you like to run the following command?\nPress enter to confirm or esc to cancel",
+			want: index.StatusPermission,
+		},
+		{
+			name: "trust prompt",
+			text: "Do you trust the contents of this directory?\nPress enter to continue",
+			want: index.StatusPermission,
+		},
+		{
+			name: "idle prompt",
+			text: "gpt-5.5 xhigh · /Users/j/project\n›",
+			want: index.StatusIdle,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := ClassifyApp(index.AppCodex, c.text); got != c.want {
+				t.Fatalf("ClassifyApp(codex,%q) = %v, want %v", c.name, got, c.want)
+			}
+		})
+	}
+}
+
 // Verified against claude 2.1.159 (busy/waiting/idle) and 2.1.162 (shell):
 // the pid registry self-reports these.
 func TestFromRegistry(t *testing.T) {
@@ -104,5 +150,12 @@ func TestResolve(t *testing.T) {
 				t.Fatalf("Resolve(%v,%v,pane) = %v, want %v", c.reg, c.regKnown, got, c.want)
 			}
 		})
+	}
+}
+
+func TestResolveAppCodexIgnoresRegistry(t *testing.T) {
+	got := ResolveApp(index.AppCodex, index.StatusIdle, true, "Working (1s)")
+	if got != index.StatusWorking {
+		t.Fatalf("ResolveApp(codex) = %v, want working from pane", got)
 	}
 }
