@@ -61,8 +61,8 @@ func (m *Model) isLive(s index.SessionMeta) bool {
 
 // rebuild regenerates the flat row list from m.all, honoring filters and the
 // active search query, then restores the cursor onto the previously-selected
-// session. When searching, results are a single fuzzy-ranked list (no groups);
-// otherwise sessions are grouped by project, pinned ones first.
+// session. Search filters the normal grouped view instead of switching to a
+// fuzzy-ranked flat list, so directory context stays visible while typing.
 func (m *Model) rebuild() {
 	switch {
 	case strings.TrimSpace(m.query) != "":
@@ -94,6 +94,10 @@ func (m *Model) groupedRows() []row {
 			rest = append(rest, s)
 		}
 	}
+	return groupedRowsFrom(pinned, rest)
+}
+
+func groupedRowsFrom(pinned, rest []index.SessionMeta) []row {
 	var rows []row
 	if len(pinned) > 0 {
 		rows = append(rows, row{kind: rowHeader, label: "★ pinned", count: len(pinned)})
@@ -128,24 +132,42 @@ func (m *Model) recentRows() []row {
 	return rows
 }
 
-// searchRows fuzzy-matches the query against "name · project" for each visible
-// session and returns the ranked results as a flat list.
+// searchRows fuzzy-matches visible sessions against the title and project path,
+// then renders the matches in the same grouped shape as the default list.
 func (m *Model) searchRows() []row {
-	var cand []index.SessionMeta
-	var hay []string
+	query := strings.TrimSpace(m.query)
+	var pinned []index.SessionMeta
+	var rest []index.SessionMeta
 	for _, s := range m.all {
 		if !m.visible(s) {
 			continue
 		}
-		cand = append(cand, s)
-		hay = append(hay, m.displayName(s)+" · "+s.ProjectLabel())
+		if !m.searchMatches(s, query) {
+			continue
+		}
+		if m.ov.IsPinned(s.SessionID) {
+			pinned = append(pinned, s)
+		} else {
+			rest = append(rest, s)
+		}
 	}
-	matches := fuzzy.Find(m.query, hay)
-	rows := make([]row, 0, len(matches))
-	for _, mt := range matches {
-		rows = append(rows, row{kind: rowSession, sess: cand[mt.Index]})
+	return groupedRowsFrom(pinned, rest)
+}
+
+func (m *Model) searchMatches(s index.SessionMeta, query string) bool {
+	if query == "" {
+		return true
 	}
-	return rows
+	return len(fuzzy.FindNoSort(query, []string{m.searchHaystack(s)})) > 0
+}
+
+func (m *Model) searchHaystack(s index.SessionMeta) string {
+	return strings.Join([]string{
+		m.displayName(s),
+		s.ProjectLabel(),
+		s.Cwd,
+		s.ProjectDir,
+	}, " · ")
 }
 
 // --- new session launch + adoption ---

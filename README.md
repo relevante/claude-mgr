@@ -70,7 +70,7 @@ In the **rail**:
 | `↵` | open the selected thread on the right (resumes it) |
 | `Tab` / `→` | jump focus into the agent pane to type |
 | `z` | zoom the agent pane |
-| `/` | fuzzy-search across all threads |
+| `/` | fuzzy-search across thread titles and directories |
 | `s` | toggle flat "recent activity" sort (across all projects) |
 | `f` | toggle "active only" filter |
 | `c` | cycle the completion chime: off → each sound → off (the current `♪ <sound>` shows in the title bar) |

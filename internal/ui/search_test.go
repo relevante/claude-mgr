@@ -2,6 +2,7 @@ package ui
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -121,6 +122,57 @@ func TestFindPendingNew(t *testing.T) {
 	})
 }
 
+func TestSearchRowsKeepGroupedDirectoryView(t *testing.T) {
+	base := time.Unix(1_000_000, 0)
+	sess := func(id, title, cwd string, last time.Time) index.SessionMeta {
+		return index.SessionMeta{SessionID: id, AutoTitle: title, Cwd: cwd, LastActive: last, FileMtime: last}
+	}
+	m := &Model{
+		ov:    overlay.Load(filepath.Join(t.TempDir(), "overlay.json")),
+		query: "foo",
+		all: []index.SessionMeta{
+			sess("api-old", "Old API work", "/Users/j/work/foo/api", base.Add(1*time.Minute)),
+			sess("bar", "Does not match", "/Users/j/work/bar/mobile", base.Add(5*time.Minute)),
+			sess("api-new", "New API work", "/Users/j/work/foo/api", base.Add(3*time.Minute)),
+			sess("web", "Frontend work", "/Users/j/work/foo/web", base.Add(4*time.Minute)),
+		},
+	}
+	got := rowSummary(m.searchRows())
+	want := []string{
+		"h:foo/web:1",
+		"s:web",
+		"h:foo/api:2",
+		"s:api-new",
+		"s:api-old",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("rows:\n%v\nwant:\n%v", got, want)
+	}
+}
+
+func TestSearchRowsMatchDirectoryWhenTitleDoesNot(t *testing.T) {
+	base := time.Unix(1_000_000, 0)
+	m := &Model{
+		ov:    overlay.Load(filepath.Join(t.TempDir(), "overlay.json")),
+		query: "sensor",
+		all: []index.SessionMeta{
+			{SessionID: "dir", AutoTitle: "Crash stack traces", Cwd: "/Users/j/work/sensorpush/firmware", LastActive: base},
+			{SessionID: "title", AutoTitle: "Sensor title match", Cwd: "/Users/j/work/other/app", LastActive: base.Add(time.Minute)},
+			{SessionID: "nope", AutoTitle: "Crash stack traces", Cwd: "/Users/j/work/other/app", LastActive: base.Add(2 * time.Minute)},
+		},
+	}
+	got := rowSummary(m.searchRows())
+	want := []string{
+		"h:other/app:1",
+		"s:title",
+		"h:sensorpush/firmware:1",
+		"s:dir",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("rows:\n%v\nwant:\n%v", got, want)
+	}
+}
+
 func TestVisibleHidesCodexArchived(t *testing.T) {
 	m := &Model{ov: overlay.Load(filepath.Join(t.TempDir(), "overlay.json"))}
 	s := index.SessionMeta{
@@ -135,6 +187,18 @@ func TestVisibleHidesCodexArchived(t *testing.T) {
 	if !m.visible(s) {
 		t.Fatal("visible=false with showArchived=true, want true")
 	}
+}
+
+func rowSummary(rows []row) []string {
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		if r.kind == rowHeader {
+			out = append(out, "h:"+r.label+":"+itoa(int64(r.count)))
+		} else {
+			out = append(out, "s:"+r.sess.SessionID)
+		}
+	}
+	return out
 }
 
 func TestNewPromptAppToggle(t *testing.T) {
