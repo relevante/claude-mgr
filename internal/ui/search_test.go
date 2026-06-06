@@ -67,7 +67,7 @@ func TestFindPendingNew(t *testing.T) {
 
 	t.Run("trailing slash on launch cwd still matches clean transcript cwd", func(t *testing.T) {
 		all := []index.SessionMeta{sess("real", dir, after, after)}
-		got, ok := findPendingNew(all, dir+"/", since) // tab-completion left a trailing slash
+		got, ok := findPendingNew(all, dir+"/", since, index.AppClaude) // tab-completion left a trailing slash
 		if !ok || got.SessionID != "real" {
 			t.Fatalf("want real, got %q ok=%v", got.SessionID, ok)
 		}
@@ -75,21 +75,21 @@ func TestFindPendingNew(t *testing.T) {
 
 	t.Run("exact match", func(t *testing.T) {
 		all := []index.SessionMeta{sess("real", dir, after, after)}
-		if got, ok := findPendingNew(all, dir, since); !ok || got.SessionID != "real" {
+		if got, ok := findPendingNew(all, dir, since, index.AppClaude); !ok || got.SessionID != "real" {
 			t.Fatalf("want real, got %q ok=%v", got.SessionID, ok)
 		}
 	})
 
 	t.Run("different directory does not match", func(t *testing.T) {
 		all := []index.SessionMeta{sess("other", "/somewhere/else", after, after)}
-		if _, ok := findPendingNew(all, dir, since); ok {
+		if _, ok := findPendingNew(all, dir, since, index.AppClaude); ok {
 			t.Fatal("should not match a different cwd")
 		}
 	})
 
 	t.Run("transcript older than launch is ignored", func(t *testing.T) {
 		all := []index.SessionMeta{sess("stale", dir, before, before)}
-		if _, ok := findPendingNew(all, dir, since); ok {
+		if _, ok := findPendingNew(all, dir, since, index.AppClaude); ok {
 			t.Fatal("should not match a transcript written before the launch")
 		}
 	})
@@ -99,8 +99,21 @@ func TestFindPendingNew(t *testing.T) {
 			sess("older", dir, after, after),
 			sess("newer", dir, after, after.Add(time.Minute)),
 		}
-		if got, ok := findPendingNew(all, dir+"/", since); !ok || got.SessionID != "newer" {
+		if got, ok := findPendingNew(all, dir+"/", since, index.AppClaude); !ok || got.SessionID != "newer" {
 			t.Fatalf("want newer, got %q ok=%v", got.SessionID, ok)
+		}
+	})
+
+	t.Run("matching app wins when cwd is shared", func(t *testing.T) {
+		all := []index.SessionMeta{
+			{SessionID: "claude", Cwd: dir, FileMtime: after, LastActive: after, App: index.AppClaude},
+			{SessionID: "codex", Cwd: dir, FileMtime: after, LastActive: after.Add(time.Minute), App: index.AppCodex},
+		}
+		if got, ok := findPendingNew(all, dir, since, index.AppCodex); !ok || got.SessionID != "codex" {
+			t.Fatalf("want codex, got %q ok=%v", got.SessionID, ok)
+		}
+		if got, ok := findPendingNew(all, dir, since, index.AppClaude); !ok || got.SessionID != "claude" {
+			t.Fatalf("want claude, got %q ok=%v", got.SessionID, ok)
 		}
 	})
 }
@@ -118,5 +131,26 @@ func TestVisibleHidesCodexArchived(t *testing.T) {
 	m.showArchived = true
 	if !m.visible(s) {
 		t.Fatal("visible=false with showArchived=true, want true")
+	}
+}
+
+func TestNewPromptAppToggle(t *testing.T) {
+	cases := []struct {
+		name       string
+		start      string
+		wantNext   string
+		wantPrompt string
+	}{
+		{"default to codex", "", index.AppCodex, "new ✳ in: "},
+		{"claude to codex", index.AppClaude, index.AppCodex, "new ✳ in: "},
+		{"codex to claude", index.AppCodex, index.AppClaude, "new ⬡ in: "},
+	}
+	for _, c := range cases {
+		if got := toggleApp(c.start); got != c.wantNext {
+			t.Errorf("%s: toggleApp=%q, want %q", c.name, got, c.wantNext)
+		}
+		if got := newPrompt(c.start); got != c.wantPrompt {
+			t.Errorf("%s: newPrompt=%q, want %q", c.name, got, c.wantPrompt)
+		}
 	}
 }

@@ -13,10 +13,11 @@ import (
 // but none is shown (e.g. it was just exited).
 var ErrNoSession = errors.New("no session pane shown")
 
-// SessionRef identifies a Claude session to show on the right.
+// SessionRef identifies an agent session to show on the right.
 type SessionRef struct {
-	ID  string // claude sessionId
+	ID  string // stable session id
 	Cwd string // working directory to launch/resume in
+	App string // "claude" (default) or "codex"
 }
 
 // EnsureSession starts our tmux server + main window (controller in the only
@@ -98,7 +99,7 @@ func ShowSession(target SessionRef, current string) (created bool, err error) {
 
 	parked := parkedName(target.ID)
 	if !windowExists(parked) {
-		if err := run("new-window", "-d", "-n", parked, "-c", target.Cwd, claudeCmd(target.ID)); err != nil {
+		if err := run("new-window", "-d", "-n", parked, "-c", target.Cwd, sessionCmd(target)); err != nil {
 			return false, err
 		}
 		created = true
@@ -123,12 +124,40 @@ func claudeCmd(sessionID string) string {
 	return "exec claude --resume " + sessionID
 }
 
+func codexCmd(sessionID string) string {
+	if tmpl := os.Getenv("CLAUDE_MGR_CODEX_CMD"); tmpl != "" {
+		return strings.NewReplacer("{id}", sessionID).Replace(tmpl)
+	}
+	return "exec codex resume " + sessionID
+}
+
+func sessionCmd(ref SessionRef) string {
+	if ref.App == "codex" {
+		return codexCmd(ref.ID)
+	}
+	return claudeCmd(ref.ID)
+}
+
 // newClaudeCmd starts a brand-new session (no resume).
 func newClaudeCmd() string {
 	if tmpl := os.Getenv("CLAUDE_MGR_CLAUDE_CMD"); tmpl != "" {
 		return strings.NewReplacer("{id}", "new").Replace(tmpl)
 	}
 	return "exec claude"
+}
+
+func newCodexCmd() string {
+	if tmpl := os.Getenv("CLAUDE_MGR_CODEX_CMD"); tmpl != "" {
+		return strings.NewReplacer("{id}", "new").Replace(tmpl)
+	}
+	return "exec codex"
+}
+
+func newSessionCmd(app string) string {
+	if app == "codex" {
+		return newCodexCmd()
+	}
+	return newClaudeCmd()
 }
 
 // SessionPanePID returns the pid of the process in the shown session pane (the
@@ -152,7 +181,7 @@ func SessionPanePID() (int, bool) {
 // LaunchNew opens a brand-new claude in cwd on the right, parking whatever is
 // currently shown. tmpID is a placeholder id; its parked window name is used so
 // the session can later be adopted (renamed) once its real id is known.
-func LaunchNew(cwd, tmpID, current string) error {
+func LaunchNew(cwd, tmpID, current, app string) error {
 	ctrl, sess, hasSess, err := layout()
 	if err != nil {
 		return err
@@ -168,7 +197,7 @@ func LaunchNew(cwd, tmpID, current string) error {
 	// atomic, with no detached-window/join-pane race that can drop a
 	// fast-exiting session. tmpID is used by the caller for tracking/parking.
 	_ = tmpID
-	if err := run("split-window", "-h", "-t", ctrl.ID, "-c", cwd, newClaudeCmd()); err != nil {
+	if err := run("split-window", "-h", "-t", ctrl.ID, "-c", cwd, newSessionCmd(app)); err != nil {
 		return err
 	}
 	if _, _, has, _ := layout(); !has {
@@ -187,7 +216,7 @@ func RestoreParked(refs []SessionRef) {
 		if windowExists(win) {
 			continue
 		}
-		_ = run("new-window", "-d", "-n", win, "-c", r.Cwd, claudeCmd(r.ID))
+		_ = run("new-window", "-d", "-n", win, "-c", r.Cwd, sessionCmd(r))
 	}
 }
 

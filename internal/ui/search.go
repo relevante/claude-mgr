@@ -22,6 +22,10 @@ func (m *Model) displayName(s index.SessionMeta) string {
 	return s.AutoTitle
 }
 
+func (m *Model) sessionTitle(s index.SessionMeta) string {
+	return brandGlyph(s) + " " + m.displayName(s)
+}
+
 // visible applies the empty/archived/active filters.
 func (m *Model) visible(s index.SessionMeta) bool {
 	if m.hideEmpty && s.IsEmpty() {
@@ -142,13 +146,32 @@ func (m *Model) searchRows() []row {
 
 // --- new session launch + adoption ---
 
-// launchNew opens a brand-new claude in cwd and records a pending adoption so
-// the real session id can be bound once Claude writes its transcript.
-func (m Model) launchNew(cwd string) (tea.Model, tea.Cmd) {
+func normalizeApp(app string) string {
+	if app == index.AppCodex {
+		return index.AppCodex
+	}
+	return index.AppClaude
+}
+
+func toggleApp(app string) string {
+	if normalizeApp(app) == index.AppCodex {
+		return index.AppClaude
+	}
+	return index.AppCodex
+}
+
+func newPrompt(app string) string {
+	return "new " + brandGlyph(index.SessionMeta{App: normalizeApp(app)}) + " in: "
+}
+
+// launchNew opens a brand-new agent session in cwd and records a pending
+// adoption so the real session id can be bound once the app writes metadata.
+func (m Model) launchNew(cwd, app string) (tea.Model, tea.Cmd) {
 	cwd = expandHome(strings.TrimSpace(cwd))
 	if cwd == "" {
 		return m, nil
 	}
+	app = normalizeApp(app)
 	if fi, err := os.Stat(cwd); err != nil || !fi.IsDir() {
 		var c tea.Cmd
 		m.status, c = flash("no such directory: " + cwd)
@@ -156,16 +179,16 @@ func (m Model) launchNew(cwd string) (tea.Model, tea.Cmd) {
 	}
 	tmpID := "new" + itoa(time.Now().UnixNano())
 	_ = tmux.Unzoom() // launching returns to the split
-	if err := tmux.LaunchNew(cwd, tmpID, m.actualShownID()); err != nil {
+	if err := tmux.LaunchNew(cwd, tmpID, m.actualShownID(), app); err != nil {
 		var c tea.Cmd
 		m.status, c = flash("error: " + err.Error())
 		return m, c
 	}
 	m.shown = tmpID
-	m.pendingNew = &pendingNew{cwd: cwd, since: time.Now()}
+	m.pendingNew = &pendingNew{cwd: cwd, app: app, since: time.Now()}
 	var c tea.Cmd
-	m.status, c = flash("＋ new session in " + cwd)
-	return m, tea.Batch(c, sendFullscreen(tmpID), scanCmd(m.store))
+	m.status, c = flash("＋ new " + brandGlyph(index.SessionMeta{App: app}) + " in " + cwd)
+	return m, tea.Batch(c, sendFullscreen(tmpID, app), scanCmd(m.store))
 }
 
 // pendingNewGrace is how long we keep trying to adopt a just-launched session
@@ -178,11 +201,15 @@ const pendingNewGrace = 15 * time.Second
 // transcript written since the launch, latest activity winning. Paths are
 // compared after filepath.Clean so a trailing slash (e.g. from tab-completion)
 // can't cause a miss.
-func findPendingNew(all []index.SessionMeta, cwd string, since time.Time) (index.SessionMeta, bool) {
+func findPendingNew(all []index.SessionMeta, cwd string, since time.Time, app string) (index.SessionMeta, bool) {
 	want := filepath.Clean(cwd)
+	app = normalizeApp(app)
 	var best index.SessionMeta
 	var found bool
 	for _, s := range all {
+		if s.AppName() != app {
+			continue
+		}
 		if filepath.Clean(s.Cwd) != want {
 			continue
 		}
@@ -203,7 +230,7 @@ func (m *Model) reconcilePendingNew() tea.Cmd {
 	if m.pendingNew == nil {
 		return nil
 	}
-	best, found := findPendingNew(m.all, m.pendingNew.cwd, m.pendingNew.since)
+	best, found := findPendingNew(m.all, m.pendingNew.cwd, m.pendingNew.since, m.pendingNew.app)
 	if !found {
 		// Give up after a grace period so a never-matching launch can't pin
 		// pendingNew (and block adoptShownID, which then adopts via the pane pid).

@@ -13,10 +13,18 @@ import (
 const version = 1
 
 type State struct {
-	Version int      `json:"version"`
-	Open    []string `json:"open"`  // session ids open in the dashboard
-	Shown   string   `json:"shown"` // the one displayed on the right
-	Sound   string   `json:"sound"` // selected completion chime name ("" = off)
+	Version int               `json:"version"`
+	Open    []string          `json:"open"`           // session ids open in the dashboard
+	Apps    map[string]string `json:"apps,omitempty"` // session id -> "claude"/"codex"
+	Shown   string            `json:"shown"`          // the one displayed on the right
+	Sound   string            `json:"sound"`          // selected completion chime name ("" = off)
+}
+
+func (s State) App(id string) string {
+	if s.Apps != nil && s.Apps[id] != "" {
+		return s.Apps[id]
+	}
+	return "claude"
 }
 
 // DefaultPath returns ~/.config/claude-mgr/workspace.json (honoring overrides).
@@ -47,8 +55,8 @@ func Load(path string) State {
 }
 
 // Save writes the workspace atomically.
-func Save(path string, open []string, shown, sound string) error {
-	s := State{Version: version, Open: open, Shown: shown, Sound: sound}
+func Save(path string, open []string, apps map[string]string, shown, sound string) error {
+	s := State{Version: version, Open: open, Apps: apps, Shown: shown, Sound: sound}
 	raw, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err

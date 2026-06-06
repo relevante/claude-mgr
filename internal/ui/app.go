@@ -93,6 +93,7 @@ type Model struct {
 	err          error
 
 	pendingNew *pendingNew // a just-launched session awaiting id discovery
+	newApp     string      // app selected while entering a new-session cwd
 
 	wsPath         string           // workspace file path
 	openIDs        map[string]bool  // sessions open in the dashboard this run
@@ -116,6 +117,7 @@ type Model struct {
 // pendingNew tracks a brand-new session launched before its id is known.
 type pendingNew struct {
 	cwd   string
+	app   string
 	since time.Time
 }
 
@@ -271,7 +273,10 @@ func tick() tea.Cmd {
 	return tea.Tick(refreshEvery, func(time.Time) tea.Msg { return tickMsg{} })
 }
 
-func sendFullscreen(id string) tea.Cmd {
+func sendFullscreen(id, app string) tea.Cmd {
+	if normalizeApp(app) == index.AppCodex {
+		return nil
+	}
 	// Fullscreen is the default renderer in current Claude, so we normally do
 	// NOT force it — sending "/tui fullscreen" otherwise leaves a visible
 	// "Already using the fullscreen renderer" line in the conversation. Opt in
@@ -443,10 +448,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "n":
 		cwd := ""
+		app := index.AppClaude
 		if s, ok := m.currentSession(); ok {
 			cwd = s.Cwd
+			app = s.AppName()
 		}
-		return m.enterInput(modeNew, cwd, "new in: ")
+		m.newApp = app
+		return m.enterInput(modeNew, cwd, newPrompt(app))
 	case "p":
 		if s, ok := m.currentSession(); ok {
 			_ = m.ov.TogglePinned(s.SessionID)
@@ -538,6 +546,12 @@ func (m Model) enterInput(mode inputMode, value, prompt string) (tea.Model, tea.
 
 func (m Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "ctrl+a":
+		if m.mode == modeNew {
+			m.newApp = toggleApp(m.newApp)
+			m.input.Prompt = newPrompt(m.newApp)
+			return m, nil
+		}
 	case "esc":
 		// First Esc clears a non-empty entry; a second Esc cancels the mode.
 		if m.input.Value() != "" {
@@ -599,7 +613,7 @@ func (m Model) commitInput() (tea.Model, tea.Cmd) {
 	case modeNew:
 		m.mode = modeNormal
 		m.input.Blur()
-		return m.launchNew(val)
+		return m.launchNew(val, m.newApp)
 	}
 	return m, nil
 }
@@ -611,7 +625,7 @@ func (m Model) showSelected() (tea.Model, tea.Cmd) {
 	}
 	prev := m.actualShownID() // the pane's real id now (may have /clear'd) — park it correctly
 	_ = tmux.Unzoom()         // opening a session always returns to the split
-	created, err := tmux.ShowSession(tmux.SessionRef{ID: s.SessionID, Cwd: s.Cwd}, prev)
+	created, err := tmux.ShowSession(tmux.SessionRef{ID: s.SessionID, Cwd: s.Cwd, App: s.AppName()}, prev)
 	if err != nil {
 		var c tea.Cmd
 		m.status, c = flash("error: " + err.Error())
@@ -621,11 +635,11 @@ func (m Model) showSelected() (tea.Model, tea.Cmd) {
 	m.openIDs[s.SessionID] = true
 	delete(m.doneIDs, tmux.Short(s.SessionID)) // viewing it clears the "go check" green
 	m.persistWorkspace()
-	name := m.displayName(s)
+	name := m.sessionTitle(s)
 	var cmds []tea.Cmd
 	cmds = append(cmds, func() tea.Msg { _ = tmux.SetSessionTitle(name); return nil })
 	if created {
-		cmds = append(cmds, sendFullscreen(s.SessionID))
+		cmds = append(cmds, sendFullscreen(s.SessionID, s.AppName()))
 	}
 	var c tea.Cmd
 	m.status, c = flash("▶ " + m.displayName(s))
@@ -858,7 +872,20 @@ func (m *Model) persistWorkspace() {
 		open = append(open, id)
 	}
 	sort.Strings(open)
-	_ = workspace.Save(m.wsPath, open, m.shown, m.sound)
+	apps := map[string]string{}
+	for _, id := range open {
+		apps[id] = m.appForID(id)
+	}
+	_ = workspace.Save(m.wsPath, open, apps, m.shown, m.sound)
+}
+
+func (m *Model) appForID(id string) string {
+	for _, s := range m.all {
+		if s.SessionID == id {
+			return s.AppName()
+		}
+	}
+	return index.AppClaude
 }
 
 // restoreWorkspace relaunches the sessions saved from a previous run as parked
@@ -868,20 +895,27 @@ func (m *Model) restoreWorkspace() tea.Cmd {
 	if len(saved.Open) == 0 {
 		return nil
 	}
-	cwd := map[string]string{}
+	byID := map[string]index.SessionMeta{}
 	for _, s := range m.all {
-		cwd[s.SessionID] = s.Cwd
+		byID[s.SessionID] = s
 	}
 	// Don't re-resume a thread that's already running in another terminal —
 	// two processes on one session id corrupt the transcript.
 	liveElsewhere := live.Sessions(m.store.ProjectsDir)
 	var refs []tmux.SessionRef
 	for _, id := range saved.Open {
-		c := cwd[id]
-		if c == "" || liveElsewhere[id] {
-			continue // gone from disk, or already live elsewhere
+		s, ok := byID[id]
+		if !ok || s.Cwd == "" {
+			continue // gone from disk
 		}
-		refs = append(refs, tmux.SessionRef{ID: id, Cwd: c})
+		app := s.AppName()
+		if app == index.AppClaude && liveElsewhere[id] {
+			continue // already live elsewhere
+		}
+		if savedApp := saved.App(id); savedApp != index.AppClaude && app == index.AppClaude {
+			app = normalizeApp(savedApp)
+		}
+		refs = append(refs, tmux.SessionRef{ID: id, Cwd: s.Cwd, App: app})
 		m.openIDs[id] = true
 		if len(refs) >= maxRestore {
 			break
@@ -908,17 +942,24 @@ func (m *Model) restoreWorkspace() tea.Cmd {
 	}
 
 	showID := saved.Shown
-	if cwd[showID] == "" {
+	if _, ok := byID[showID]; !ok {
 		showID = refs[0].ID
 	}
-	created, _ := tmux.ShowSession(tmux.SessionRef{ID: showID, Cwd: cwd[showID]}, "")
+	showSession := byID[showID]
+	showApp := showSession.AppName()
+	if savedApp := saved.App(showID); savedApp != index.AppClaude && showApp == index.AppClaude {
+		showApp = normalizeApp(savedApp)
+	}
+	created, _ := tmux.ShowSession(tmux.SessionRef{ID: showID, Cwd: showSession.Cwd, App: showApp}, "")
 	m.shown = showID
 	m.selID = showID
 
 	var cmds []tea.Cmd
 	if created {
-		cmds = append(cmds, sendFullscreen(showID))
+		cmds = append(cmds, sendFullscreen(showID, showApp))
 	}
+	name := m.sessionTitle(showSession)
+	cmds = append(cmds, func() tea.Msg { _ = tmux.SetSessionTitle(name); return nil })
 	var c tea.Cmd
 	m.status, c = flash(fmt.Sprintf("restored %d thread(s)", len(refs)))
 	cmds = append(cmds, c)
