@@ -49,13 +49,18 @@ func (m Markers) Classify(paneText string) index.Status {
 // current in ~/.claude/sessions/<pid>.json — to a Status. This is authoritative
 // and real-time (verified: idle/busy/waiting flip within a few hundred ms),
 // unlike scraping pane text, so it's the preferred source where available.
-// "busy" → working, "waiting" → blocked on you, anything else → idle.
+// "busy" → working, "waiting" → blocked on you, "shell" → a background shell
+// still running while Claude sits at the prompt (verified against claude
+// 2.1.162: busy → shell when the turn ends with a bg task alive → idle when it
+// exits), anything else → idle.
 func FromRegistry(s string) index.Status {
 	switch s {
 	case "busy":
 		return index.StatusWorking
 	case "waiting":
 		return index.StatusWaiting
+	case "shell":
+		return index.StatusShell
 	default:
 		return index.StatusIdle
 	}

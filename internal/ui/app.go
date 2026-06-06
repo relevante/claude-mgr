@@ -455,7 +455,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "a":
 		if s, ok := m.currentSession(); ok {
 			_ = m.ov.ToggleArchived(s.SessionID)
+			// Flash the result: archiving hides the row instantly, so without
+			// feedback an accidental 'a' looks like the session vanished.
+			var c tea.Cmd
+			if m.ov.IsArchived(s.SessionID) {
+				m.status, c = flash("archived: " + m.displayName(s) + " · A shows · a undoes")
+			} else {
+				m.status, c = flash("unarchived: " + m.displayName(s))
+			}
 			m.rebuild()
+			return m, c
 		}
 	case "A":
 		m.showArchived = !m.showArchived
@@ -687,11 +696,13 @@ func dbg(format string, args ...any) {
 	fmt.Fprintf(f, time.Now().Format("15:04:05.000")+" "+format+"\n", args...)
 }
 
-// chimeForTransition reports whether a working→not-working transition warrants
+// chimeForTransition reports whether an active→not-active transition warrants
 // the completion chime: the agent stopped (finished, or now needs you) and it's
-// either not the session you're viewing, or the window isn't focused.
+// either not the session you're viewing, or the window isn't focused. Active
+// includes a running background shell, so handing off busy→shell stays silent
+// and the chime fires when the whole task lands.
 func chimeForTransition(prev, next index.Status, isShown, focused bool) bool {
-	if prev != index.StatusWorking || next == index.StatusWorking {
+	if !prev.Active() || next.Active() {
 		return false
 	}
 	return !isShown || !focused
@@ -707,7 +718,7 @@ func (m *Model) anyChimeWorthy(next map[string]index.Status) bool {
 	worthy := false
 	for id8, st := range next {
 		prev := m.statusByID8[id8]
-		if prev != index.StatusWorking || st == index.StatusWorking {
+		if !prev.Active() || st.Active() {
 			continue
 		}
 		isShown := shownID8 != "" && id8 == shownID8
@@ -720,9 +731,10 @@ func (m *Model) anyChimeWorthy(next map[string]index.Status) bool {
 	return worthy
 }
 
-// markCompleted flags a session that just went from working to idle while it
-// was NOT the shown one — i.e. it finished a run in the background. The flag
-// (rendered as a green dot) clears when the session is next opened.
+// markCompleted flags a session that just went from active (working, or a
+// background shell running) to idle while it was NOT the shown one — i.e. it
+// finished a run in the background. The flag (rendered as a green dot) clears
+// when the session is next opened.
 func (m *Model) markCompleted(next map[string]index.Status) {
 	shownID8 := ""
 	if m.shown != "" {
@@ -732,7 +744,7 @@ func (m *Model) markCompleted(next map[string]index.Status) {
 		if id8 == shownID8 {
 			continue
 		}
-		if m.statusByID8[id8] == index.StatusWorking && cur == index.StatusIdle {
+		if m.statusByID8[id8].Active() && cur == index.StatusIdle {
 			if m.doneIDs == nil {
 				m.doneIDs = map[string]bool{}
 			}
@@ -879,6 +891,21 @@ func (m *Model) restoreWorkspace() tea.Cmd {
 		return nil
 	}
 	tmux.RestoreParked(refs)
+
+	// A controller hot-restart (respawn-pane) leaves the previously-shown
+	// session's pane alive in the main window. ShowSession would treat it as an
+	// unknown occupant and KILL it — adopt it instead, so a rail restart never
+	// interrupts the session you were looking at.
+	if pid, ok := tmux.SessionPanePID(); ok {
+		if occupant := live.SessionForPID(m.store.ProjectsDir, pid); occupant != "" {
+			m.shown = occupant
+			m.selID = occupant
+			m.openIDs[occupant] = true
+			var c tea.Cmd
+			m.status, c = flash(fmt.Sprintf("restored %d thread(s)", len(refs)))
+			return c
+		}
+	}
 
 	showID := saved.Shown
 	if cwd[showID] == "" {

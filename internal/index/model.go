@@ -24,6 +24,7 @@ const (
 	StatusWorking
 	StatusWaiting // waiting for user input
 	StatusPermission
+	StatusShell // at the prompt, but a background shell is still running
 )
 
 func (s Status) Dot() string {
@@ -34,9 +35,19 @@ func (s Status) Dot() string {
 		return "◐"
 	case StatusPermission:
 		return "⚠"
+	case StatusShell:
+		return "▷"
 	default:
 		return "○"
 	}
+}
+
+// Active reports whether the session has work in flight — Claude itself busy,
+// or a background shell it launched still running. Used so the completion
+// chime/green-dot fire when the WHOLE task lands, not when Claude hands off to
+// a background watcher.
+func (s Status) Active() bool {
+	return s == StatusWorking || s == StatusShell
 }
 
 // SessionMeta is everything the dashboard needs to display and re-enter one

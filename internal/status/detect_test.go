@@ -58,7 +58,8 @@ func TestClassify(t *testing.T) {
 	}
 }
 
-// Verified against claude 2.1.159: the pid registry self-reports these.
+// Verified against claude 2.1.159 (busy/waiting/idle) and 2.1.162 (shell):
+// the pid registry self-reports these.
 func TestFromRegistry(t *testing.T) {
 	cases := []struct {
 		in   string
@@ -66,6 +67,7 @@ func TestFromRegistry(t *testing.T) {
 	}{
 		{"busy", index.StatusWorking},
 		{"waiting", index.StatusWaiting},
+		{"shell", index.StatusShell},
 		{"idle", index.StatusIdle},
 		{"", index.StatusIdle},
 		{"something-unknown", index.StatusIdle},

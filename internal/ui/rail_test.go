@@ -38,6 +38,46 @@ func TestMoveWrap(t *testing.T) {
 	}
 }
 
+func TestClampScrollShowsGroupHeader(t *testing.T) {
+	// header(0), S(1), S(2), header(3), S(4), S(5); height 5 → viewport of 3
+	rows := []row{
+		{kind: rowHeader},
+		sessRow("a"), sessRow("b"),
+		{kind: rowHeader},
+		sessRow("c"), sessRow("d"),
+	}
+
+	// Cursor lands on a group's first session → the header scrolls in with it.
+	m := &Model{rows: rows, height: 5, scroll: 5, cursor: 4}
+	m.clampScroll()
+	if m.scroll != 3 {
+		t.Fatalf("scroll=%d, want 3 (header row visible above first session)", m.scroll)
+	}
+
+	// But not when that would push the cursor off the bottom edge:
+	// header(0), S(1), header(2), S(3), S(4), S(5) — scrolling down to cursor 5
+	// puts the viewport top on S(3), a group-first session, but pulling in its
+	// header at 2 would hide the cursor.
+	edge := []row{
+		{kind: rowHeader},
+		sessRow("a"),
+		{kind: rowHeader},
+		sessRow("b"), sessRow("c"), sessRow("d"),
+	}
+	m = &Model{rows: edge, height: 5, scroll: 0, cursor: 5}
+	m.clampScroll()
+	if m.scroll != 3 {
+		t.Fatalf("scroll=%d, want 3 (cursor at bottom edge wins over header)", m.scroll)
+	}
+
+	// Mid-group top row (prev row is a session) is left alone.
+	m = &Model{rows: rows, height: 5, scroll: 5, cursor: 2}
+	m.clampScroll()
+	if m.scroll != 2 {
+		t.Fatalf("scroll=%d, want 2 (no header pull mid-group)", m.scroll)
+	}
+}
+
 func TestJumpAttentionWraps(t *testing.T) {
 	// attention at rows 0 and 2; row 1 is quiet (8-char ids so tmux.Short is identity)
 	m := &Model{

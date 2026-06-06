@@ -101,13 +101,13 @@ func (m *Model) pageStep() int {
 	return 1
 }
 
-// needsAttention reports whether a session is worth jumping to: working,
-// blocked waiting on you (permission or any other prompt), or finished in the
-// background (green dot).
+// needsAttention reports whether a session is worth jumping to: working (or a
+// background shell running), blocked waiting on you (permission or any other
+// prompt), or finished in the background (green dot).
 func (m *Model) needsAttention(s index.SessionMeta) bool {
 	id8 := tmux.Short(s.SessionID)
 	if st, ok := m.statusByID8[id8]; ok &&
-		(st == index.StatusWorking || st == index.StatusWaiting || st == index.StatusPermission) {
+		(st.Active() || st == index.StatusWaiting || st == index.StatusPermission) {
 		return true
 	}
 	return m.doneIDs[id8]
@@ -186,6 +186,15 @@ func (m *Model) clampScroll() {
 	}
 	if m.cursor >= m.scroll+vp {
 		m.scroll = m.cursor - vp + 1
+	}
+	// If the viewport top is a group's FIRST session, its header sits exactly
+	// one line off-screen — looking like the title bar swallowed the project
+	// path. Pull the header in too, unless that would push the cursor off the
+	// bottom.
+	if m.scroll > 0 && m.scroll < len(m.rows) &&
+		m.rows[m.scroll].kind == rowSession && m.rows[m.scroll-1].kind == rowHeader &&
+		m.cursor < m.scroll-1+vp {
+		m.scroll--
 	}
 	if m.scroll < 0 {
 		m.scroll = 0
@@ -378,6 +387,8 @@ func (m Model) statusMark(s index.SessionMeta) (string, lipgloss.Style) {
 		switch st {
 		case index.StatusWorking:
 			return "▶", workStyle // green play: Claude busy
+		case index.StatusShell:
+			return "▷", workStyle // hollow green play: background shell still running
 		case index.StatusPermission:
 			return "⚠", attnStyle // red: your turn
 		case index.StatusWaiting:
@@ -389,10 +400,13 @@ func (m Model) statusMark(s index.SessionMeta) (string, lipgloss.Style) {
 			return "●", idleStyle // open here, idle (white)
 		}
 	}
-	// Running in another terminal: gray; glyph still shows busy vs idle.
+	// Running in another terminal: gray; glyph still shows busy/background/idle.
 	if st, ok := m.externalStatus[s.SessionID]; ok {
-		if st == "busy" {
+		switch st {
+		case "busy":
 			return "▶", awayStyle
+		case "shell":
+			return "▷", awayStyle
 		}
 		return "●", awayStyle
 	}

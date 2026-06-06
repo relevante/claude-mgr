@@ -87,6 +87,7 @@ Each row shows **where/what** on the left, and a **context-fill pie** on the rig
 |------|---------|
 | `▌` (left bar) | this session is the one shown on the right |
 | `▶` green | working (Claude is busy) |
+| `▷` green | a background shell is still running (Claude is at the prompt) |
 | `⚠` red | needs permission / your turn (a confirm dialog) |
 | `◐` red | blocked waiting on you (another prompt) |
 | `●` white | open here, idle |

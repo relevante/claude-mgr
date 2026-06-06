@@ -8,7 +8,7 @@ import (
 )
 
 func TestChimeForTransition(t *testing.T) {
-	W, I, P := index.StatusWorking, index.StatusIdle, index.StatusPermission
+	W, I, P, S := index.StatusWorking, index.StatusIdle, index.StatusPermission, index.StatusShell
 	cases := []struct {
 		name                   string
 		prev, next             index.Status
@@ -21,6 +21,9 @@ func TestChimeForTransition(t *testing.T) {
 		{"still working: no chime", W, W, false, true, false},
 		{"was idle (no transition): no chime", I, I, false, true, false},
 		{"idle→working (started): no chime", I, W, false, true, false},
+		{"handoff to background shell: no chime", W, S, false, true, false},
+		{"background shell finishes → idle chimes", S, I, false, true, true},
+		{"shell wakes claude (shell→working): no chime", S, W, false, true, false},
 	}
 	for _, c := range cases {
 		if got := chimeForTransition(c.prev, c.next, c.isShown, c.focused); got != c.want {
