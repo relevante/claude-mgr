@@ -14,7 +14,7 @@ import (
 )
 
 // displayName resolves a session's shown name: a custom overlay name wins over
-// Claude's auto-title.
+// the app's auto-title.
 func (m *Model) displayName(s index.SessionMeta) string {
 	if n, ok := m.ov.Name(s.SessionID); ok {
 		return n
@@ -27,7 +27,7 @@ func (m *Model) visible(s index.SessionMeta) bool {
 	if m.hideEmpty && s.IsEmpty() {
 		return false
 	}
-	if !m.showArchived && m.ov.IsArchived(s.SessionID) {
+	if !m.showArchived && (m.ov.IsArchived(s.SessionID) || s.Archived) {
 		return false
 	}
 	if m.activeOnly && !m.isLive(s) {

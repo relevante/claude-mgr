@@ -27,6 +27,11 @@ const (
 	StatusShell // at the prompt, but a background shell is still running
 )
 
+const (
+	AppClaude = "claude"
+	AppCodex  = "codex"
+)
+
 func (s Status) Dot() string {
 	switch s {
 	case StatusWorking:
@@ -77,9 +82,21 @@ type SessionMeta struct {
 	FileSize  int64
 	FileMtime time.Time
 
+	// App identifies which CLI owns the session. Empty means Claude for older
+	// cache/test values that predate app-aware indexing.
+	App      string
+	Archived bool // read-only app-native archive flag (Codex); overlay archive is separate
+
 	// Runtime-only (not cached): set by the live/status layers.
 	Live   bool
 	Status Status
+}
+
+func (m SessionMeta) AppName() string {
+	if m.App == "" {
+		return AppClaude
+	}
+	return m.App
 }
 
 // resolveAutoTitle picks the best non-custom display name: aiTitle, else last

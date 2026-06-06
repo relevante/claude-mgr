@@ -24,6 +24,8 @@ var (
 	idleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")) // open here, idle (bright white)
 	awayStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))            // running elsewhere (darker gray)
 	dormantStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("236"))            // dormant (dimmest gray)
+	claudeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("173"))            // Anthropic muted orange
+	codexStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("36"))             // OpenAI teal
 	// shownGutter marks the session shown on the right with a bar in the left
 	// gutter — not a background, and not a triangle (which means "working").
 	shownGutter = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231"))
@@ -264,6 +266,7 @@ func (m Model) renderRow(r row, selected bool, w int, now time.Time) string {
 	}
 	s := r.sess
 	mark, markStyle := m.statusMark(s)
+	brand, brandStyle := m.brandMark(s, selected)
 
 	// Right-side meta: relative time, prefixed with the project in recent mode
 	// (which has no group headers to show it). The project is reverse-truncated
@@ -288,7 +291,7 @@ func (m Model) renderRow(r row, selected bool, w int, now time.Time) string {
 	if s.SessionID == m.shown {
 		gut = "▌"
 	}
-	prefix := gut + " " + mark + " " // width 4
+	prefix := gut + " " + mark + " " + brand + " "
 	avail := w - lipgloss.Width(prefix) - lipgloss.Width(rightPlain) - 1
 	if avail < 4 {
 		avail = 4
@@ -307,7 +310,7 @@ func (m Model) renderRow(r row, selected bool, w int, now time.Time) string {
 	// Render each segment separately so the icons keep their own color. On the
 	// selected row, every segment also gets the selection background, so the
 	// cursor highlight spans the row without flattening the icon colors.
-	gutSty, markSty, pieSty := shownGutter, markStyle, pieStyle
+	gutSty, markSty, brandSty, pieSty := shownGutter, markStyle, brandStyle, pieStyle
 	txtSty := lipgloss.NewStyle() // title
 	metaSty := dimStyle           // time / project
 	spSty := lipgloss.NewStyle()  // separators + padding
@@ -315,6 +318,7 @@ func (m Model) renderRow(r row, selected bool, w int, now time.Time) string {
 		bg := lipgloss.Color("238")
 		gutSty = gutSty.Background(bg)
 		markSty = markSty.Background(bg)
+		brandSty = brandSty.Background(bg)
 		pieSty = pieSty.Background(bg)
 		txtSty = txtSty.Bold(true).Foreground(lipgloss.Color("231")).Background(bg)
 		metaSty = lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(bg)
@@ -326,6 +330,8 @@ func (m Model) renderRow(r row, selected bool, w int, now time.Time) string {
 	b.WriteString(spSty.Render(" "))
 	b.WriteString(markSty.Render(mark))
 	b.WriteString(spSty.Render(" "))
+	b.WriteString(brandSty.Render(brand))
+	b.WriteString(spSty.Render(" "))
 	b.WriteString(txtSty.Render(title))
 	b.WriteString(spSty.Render(gap + " "))
 	if pie != "" {
@@ -334,6 +340,39 @@ func (m Model) renderRow(r row, selected bool, w int, now time.Time) string {
 	}
 	b.WriteString(metaSty.Render(meta))
 	return b.String()
+}
+
+func (m Model) brandMark(s index.SessionMeta, selected bool) (string, lipgloss.Style) {
+	glyph, colored := brandGlyph(s), brandStyle(s)
+	if selected || m.ownsSession(s) {
+		return glyph, colored
+	}
+	if _, ok := m.externalStatus[s.SessionID]; ok {
+		return glyph, awayStyle
+	}
+	return glyph, dormantStyle
+}
+
+func brandGlyph(s index.SessionMeta) string {
+	if s.AppName() == index.AppCodex {
+		return "⬡"
+	}
+	return "✳"
+}
+
+func brandStyle(s index.SessionMeta) lipgloss.Style {
+	if s.AppName() == index.AppCodex {
+		return codexStyle
+	}
+	return claudeStyle
+}
+
+func (m Model) ownsSession(s index.SessionMeta) bool {
+	if m.openIDs[s.SessionID] {
+		return true
+	}
+	_, ok := m.statusByID8[tmux.Short(s.SessionID)]
+	return ok
 }
 
 // contextLimit is the assumed context-window size (tokens); defaults to 1M.

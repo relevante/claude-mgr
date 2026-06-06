@@ -14,6 +14,8 @@ type cacheEntry struct {
 	ProjectDir    string `json:"projectDir"`
 	Cwd           string `json:"cwd"`
 	GitBranch     string `json:"gitBranch"`
+	App           string `json:"app,omitempty"`
+	Archived      bool   `json:"archived,omitempty"`
 	AiTitle       string `json:"aiTitle,omitempty"`
 	LastPrompt    string `json:"lastPrompt,omitempty"`
 	FirstUserMsg  string `json:"firstUserMsg,omitempty"`
@@ -28,15 +30,21 @@ type cacheFile struct {
 	Entries map[string]cacheEntry `json:"entries"`
 }
 
-const cacheVersion = 2 // bumped: added ContextTokens
+const cacheVersion = 3 // bumped: added App/Archived
 
 func (e cacheEntry) toMeta(path string) SessionMeta {
+	app := e.App
+	if app == "" {
+		app = AppClaude
+	}
 	m := SessionMeta{
 		SessionID:     e.SessionID,
 		Path:          path,
 		ProjectDir:    e.ProjectDir,
 		Cwd:           e.Cwd,
 		GitBranch:     e.GitBranch,
+		App:           app,
+		Archived:      e.Archived,
 		AiTitle:       e.AiTitle,
 		LastPrompt:    e.LastPrompt,
 		FirstUserMsg:  e.FirstUserMsg,
@@ -61,6 +69,8 @@ func metaToEntry(m SessionMeta) cacheEntry {
 		ProjectDir:    m.ProjectDir,
 		Cwd:           m.Cwd,
 		GitBranch:     m.GitBranch,
+		App:           m.AppName(),
+		Archived:      m.Archived,
 		AiTitle:       m.AiTitle,
 		LastPrompt:    m.LastPrompt,
 		FirstUserMsg:  m.FirstUserMsg,

@@ -10,8 +10,10 @@ import (
 
 // Store discovers sessions and caches their metadata between runs.
 type Store struct {
-	ProjectsDir string // ~/.claude/projects
-	CachePath   string // ~/.config/claude-mgr/index.json
+	ProjectsDir    string // ~/.claude/projects
+	CachePath      string // ~/.config/claude-mgr/index.json
+	CodexStatePath string // ~/.codex/state_5.sqlite
+	SQLitePath     string // sqlite3 executable
 
 	cache  cacheFile
 	Hits   int // files served from cache on the last Scan
@@ -37,7 +39,15 @@ func NewStore() (*Store, error) {
 		}
 		cache = filepath.Join(cfg, "claude-mgr", "index.json")
 	}
-	return &Store{ProjectsDir: projects, CachePath: cache}, nil
+	codexState := os.Getenv("CLAUDE_MGR_CODEX_STATE")
+	if codexState == "" {
+		codexState = filepath.Join(home, ".codex", "state_5.sqlite")
+	}
+	sqlitePath := os.Getenv("CLAUDE_MGR_SQLITE3")
+	if sqlitePath == "" {
+		sqlitePath = "sqlite3"
+	}
+	return &Store{ProjectsDir: projects, CachePath: cache, CodexStatePath: codexState, SQLitePath: sqlitePath}, nil
 }
 
 // Scan returns all top-level sessions, newest first. Unchanged files are served
@@ -75,6 +85,7 @@ func (s *Store) Scan() ([]SessionMeta, error) {
 				SessionID:  strings.TrimSuffix(filepath.Base(p), ".jsonl"),
 				Path:       p,
 				ProjectDir: filepath.Base(filepath.Dir(p)),
+				App:        AppClaude,
 				FileSize:   fi.Size(),
 				FileMtime:  fi.ModTime(),
 			}
@@ -85,6 +96,9 @@ func (s *Store) Scan() ([]SessionMeta, error) {
 		}
 		next[p] = metaToEntry(m)
 		out = append(out, m)
+	}
+	if codex, err := s.scanCodex(); err == nil {
+		out = append(out, codex...)
 	}
 
 	s.cache.Version = cacheVersion

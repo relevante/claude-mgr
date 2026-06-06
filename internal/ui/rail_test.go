@@ -106,3 +106,21 @@ func TestJumpAttentionWraps(t *testing.T) {
 		t.Fatalf("single attention: ok=%v cursor=%d, want false/0", ok, solo.cursor)
 	}
 }
+
+func TestBrandGlyph(t *testing.T) {
+	cases := []struct {
+		name string
+		app  string
+		want string
+	}{
+		{"default claude", "", "✳"},
+		{"claude", index.AppClaude, "✳"},
+		{"codex", index.AppCodex, "⬡"},
+	}
+	for _, c := range cases {
+		got := brandGlyph(index.SessionMeta{App: c.app})
+		if got != c.want {
+			t.Errorf("%s: brandGlyph=%q, want %q", c.name, got, c.want)
+		}
+	}
+}

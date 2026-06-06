@@ -1,10 +1,12 @@
 package ui
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
 	"claude-mgr/internal/index"
+	"claude-mgr/internal/overlay"
 )
 
 func TestChimeForTransition(t *testing.T) {
@@ -101,4 +103,20 @@ func TestFindPendingNew(t *testing.T) {
 			t.Fatalf("want newer, got %q ok=%v", got.SessionID, ok)
 		}
 	})
+}
+
+func TestVisibleHidesCodexArchived(t *testing.T) {
+	m := &Model{ov: overlay.Load(filepath.Join(t.TempDir(), "overlay.json"))}
+	s := index.SessionMeta{
+		SessionID: "codex-archived",
+		App:       index.AppCodex,
+		Archived:  true,
+	}
+	if m.visible(s) {
+		t.Fatal("visible=true for archived Codex session, want false")
+	}
+	m.showArchived = true
+	if !m.visible(s) {
+		t.Fatal("visible=false with showArchived=true, want true")
+	}
 }
