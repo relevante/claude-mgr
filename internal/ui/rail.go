@@ -8,7 +8,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"claude-mgr/internal/index"
-	"claude-mgr/internal/tmux"
 )
 
 var (
@@ -107,12 +106,12 @@ func (m *Model) pageStep() int {
 // background shell running), blocked waiting on you (permission or any other
 // prompt), or finished in the background (green dot).
 func (m *Model) needsAttention(s index.SessionMeta) bool {
-	id8 := tmux.Short(s.SessionID)
-	if st, ok := m.statusByID8[id8]; ok &&
+	key := sessionKey(s)
+	if st, ok := m.statusByID8[key]; ok &&
 		(st.Active() || st == index.StatusWaiting || st == index.StatusPermission) {
 		return true
 	}
-	return m.doneIDs[id8]
+	return m.doneIDs[key]
 }
 
 // jumpAttention moves the cursor to the next/prev session needing attention,
@@ -371,7 +370,7 @@ func (m Model) ownsSession(s index.SessionMeta) bool {
 	if m.openIDs[s.SessionID] {
 		return true
 	}
-	_, ok := m.statusByID8[tmux.Short(s.SessionID)]
+	_, ok := m.statusByID8[sessionKey(s)]
 	return ok
 }
 
@@ -426,7 +425,8 @@ func projCap(w int) int {
 // separate row background (renderRow), so status stays visible for that row too.
 func (m Model) statusMark(s index.SessionMeta) (string, lipgloss.Style) {
 	// In your dashboard: colored, from real captured status.
-	if st, ok := m.statusByID8[tmux.Short(s.SessionID)]; ok {
+	key := sessionKey(s)
+	if st, ok := m.statusByID8[key]; ok {
 		switch st {
 		case index.StatusWorking:
 			return "▶", workStyle // green play: Claude busy
@@ -437,7 +437,7 @@ func (m Model) statusMark(s index.SessionMeta) (string, lipgloss.Style) {
 		case index.StatusWaiting:
 			return "◐", attnStyle // red: your turn
 		default:
-			if m.doneIDs[tmux.Short(s.SessionID)] {
+			if m.doneIDs[key] {
 				return "●", workStyle // finished in the background — go check (green)
 			}
 			return "●", idleStyle // open here, idle (white)

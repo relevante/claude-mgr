@@ -36,8 +36,18 @@ func envOr(key, def string) string {
 // mainTarget addresses the primary window.
 func mainTarget() string { return Session + ":" + MainWindow }
 
+// SessionKey returns the tmux/window key for a session. Claude keeps the
+// historical 8-char key; Codex UUIDv7 ids share long time prefixes, so they
+// need a collision-safe key.
+func SessionKey(id, app string) string {
+	if app == "codex" {
+		return strings.ReplaceAll(id, "-", "")
+	}
+	return short(id)
+}
+
 // parkedName is the window name a session is parked under when not visible.
-func parkedName(sessionID string) string { return "s_" + short(sessionID) }
+func parkedName(ref SessionRef) string { return "s_" + SessionKey(ref.ID, ref.App) }
 
 func short(id string) string {
 	if len(id) >= 8 {
@@ -114,11 +124,11 @@ func Panes() ([]Pane, error) {
 
 // Parked is a session running in a detached window (not currently shown).
 type Parked struct {
-	ID8    string // 8-char session id from the window name
+	ID8    string // session key from the window name
 	PaneID string
 }
 
-// ParkedPanes lists sessions parked off-screen in s_<id8> windows.
+// ParkedPanes lists sessions parked off-screen in s_<sessionKey> windows.
 func ParkedPanes() ([]Parked, error) {
 	out, err := output("list-panes", "-s", "-t", Session, "-F", "#{window_name}\t#{pane_id}")
 	if err != nil {
@@ -135,7 +145,7 @@ func ParkedPanes() ([]Parked, error) {
 	return parked, nil
 }
 
-// Short returns the 8-char id used in parked window names.
+// Short returns the legacy 8-char id used for Claude parked window names.
 func Short(id string) string { return short(id) }
 
 // layout returns the controller pane and the session pane (if one is shown).

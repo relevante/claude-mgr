@@ -26,6 +26,10 @@ func (m *Model) sessionTitle(s index.SessionMeta) string {
 	return brandGlyph(s) + " " + m.displayName(s)
 }
 
+func sessionKey(s index.SessionMeta) string {
+	return tmux.SessionKey(s.SessionID, s.AppName())
+}
+
 // visible applies the empty/archived/active filters.
 func (m *Model) visible(s index.SessionMeta) bool {
 	if m.hideEmpty && s.IsEmpty() {
@@ -48,7 +52,7 @@ func (m *Model) isLive(s index.SessionMeta) bool {
 	if m.openIDs[s.SessionID] {
 		return true
 	}
-	if _, ok := m.statusByID8[tmux.Short(s.SessionID)]; ok {
+	if _, ok := m.statusByID8[sessionKey(s)]; ok {
 		return true
 	}
 	_, ext := m.externalStatus[s.SessionID]
@@ -179,7 +183,7 @@ func (m Model) launchNew(cwd, app string) (tea.Model, tea.Cmd) {
 	}
 	tmpID := "new" + itoa(time.Now().UnixNano())
 	_ = tmux.Unzoom() // launching returns to the split
-	if err := tmux.LaunchNew(cwd, tmpID, m.actualShownID(), app); err != nil {
+	if err := tmux.LaunchNew(cwd, tmpID, m.actualShownRef(), app); err != nil {
 		var c tea.Cmd
 		m.status, c = flash("error: " + err.Error())
 		return m, c
@@ -240,7 +244,7 @@ func (m *Model) reconcilePendingNew() tea.Cmd {
 		return nil
 	}
 	tmpID := m.shown
-	tmux.AdoptParked(tmpID, best.SessionID)
+	tmux.AdoptParked(tmpID, best.SessionID, best.AppName())
 	if m.shown == tmpID {
 		m.shown = best.SessionID
 	}

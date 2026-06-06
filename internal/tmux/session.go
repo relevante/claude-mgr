@@ -79,8 +79,8 @@ func windowExists(name string) bool {
 // ShowSession makes target the visible right-hand pane. current is the id of
 // the session presently shown ("" if none). Returns whether the target was
 // freshly launched (so the caller can send "/tui fullscreen" after it boots).
-func ShowSession(target SessionRef, current string) (created bool, err error) {
-	if target.ID == current && current != "" {
+func ShowSession(target, current SessionRef) (created bool, err error) {
+	if target.ID == current.ID && current.ID != "" {
 		return false, nil // already showing it
 	}
 	ctrl, sess, hasSess, err := layout()
@@ -88,7 +88,7 @@ func ShowSession(target SessionRef, current string) (created bool, err error) {
 		return false, err
 	}
 	// Park whatever is currently shown, preserving its process + scrollback.
-	if hasSess && current != "" {
+	if hasSess && current.ID != "" {
 		if err := run("break-pane", "-d", "-s", sess.ID, "-n", parkedName(current)); err != nil {
 			return false, err
 		}
@@ -97,7 +97,7 @@ func ShowSession(target SessionRef, current string) (created bool, err error) {
 		_ = run("kill-pane", "-t", sess.ID)
 	}
 
-	parked := parkedName(target.ID)
+	parked := parkedName(target)
 	if !windowExists(parked) {
 		if err := run("new-window", "-d", "-n", parked, "-c", target.Cwd, sessionCmd(target)); err != nil {
 			return false, err
@@ -181,12 +181,12 @@ func SessionPanePID() (int, bool) {
 // LaunchNew opens a brand-new claude in cwd on the right, parking whatever is
 // currently shown. tmpID is a placeholder id; its parked window name is used so
 // the session can later be adopted (renamed) once its real id is known.
-func LaunchNew(cwd, tmpID, current, app string) error {
+func LaunchNew(cwd, tmpID string, current SessionRef, app string) error {
 	ctrl, sess, hasSess, err := layout()
 	if err != nil {
 		return err
 	}
-	if hasSess && current != "" {
+	if hasSess && current.ID != "" {
 		if err := run("break-pane", "-d", "-s", sess.ID, "-n", parkedName(current)); err != nil {
 			return err
 		}
@@ -212,7 +212,7 @@ func LaunchNew(cwd, tmpID, current, app string) error {
 // windows are left alone.
 func RestoreParked(refs []SessionRef) {
 	for _, r := range refs {
-		win := parkedName(r.ID)
+		win := parkedName(r)
 		if windowExists(win) {
 			continue
 		}
@@ -235,8 +235,9 @@ func KillServer() error {
 // AdoptParked renames a parked placeholder window to the real session's name,
 // so future park/join and status polling address it correctly. No-op if the
 // placeholder window doesn't exist (the session is currently shown instead).
-func AdoptParked(tmpID, realID string) {
-	from, to := parkedName(tmpID), parkedName(realID)
+func AdoptParked(tmpID, realID, app string) {
+	from := parkedName(SessionRef{ID: tmpID, App: app})
+	to := parkedName(SessionRef{ID: realID, App: app})
 	if windowExists(from) {
 		_ = run("rename-window", "-t", Session+":"+from, to)
 	}
