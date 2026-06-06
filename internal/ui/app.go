@@ -95,9 +95,10 @@ type Model struct {
 	pendingNew *pendingNew // a just-launched session awaiting id discovery
 	newApp     string      // app selected while entering a new-session cwd
 
-	wsPath         string           // workspace file path
-	openIDs        map[string]bool  // sessions open in the dashboard this run
-	liveMiss       map[string]int   // consecutive polls an open session went missing
+	wsPath         string            // workspace file path
+	openIDs        map[string]bool   // sessions open in the dashboard this run
+	appByID        map[string]string // sticky session→app memory; never cleared by a scan gap
+	liveMiss       map[string]time.Time // when an open session first went missing from our tmux
 	answeredResume map[string]int64 // session key → unix-ms we last auto-answered its resume prompt
 	restored       bool             // workspace restore attempted
 
@@ -126,6 +127,13 @@ func New(store *index.Store) Model {
 	ti := textinput.New()
 	ti.Prompt = ""
 	wsPath := workspace.DefaultPath()
+	ws := workspace.Load(wsPath)
+	// Seed the sticky app map from the saved workspace so open sessions keep
+	// their app identity even before (or without) a scan that includes them.
+	appByID := map[string]string{}
+	for id, app := range ws.Apps {
+		appByID[id] = normalizeApp(app)
+	}
 	m := Model{
 		store:      store,
 		ov:         overlay.Load(overlay.DefaultPath()),
@@ -134,8 +142,9 @@ func New(store *index.Store) Model {
 		input:      ti,
 		wsPath:     wsPath,
 		openIDs:    map[string]bool{},
-		sound:      workspace.Load(wsPath).Sound, // restore the chime selection
-		focused:    true,                         // assume focused until a blur says otherwise
+		appByID:    appByID,
+		sound:      ws.Sound, // restore the chime selection
+		focused:    true,     // assume focused until a blur says otherwise
 	}
 	// Event-drive status off Claude's registry and Codex's WAL; fall back to
 	// polling on error.
@@ -201,6 +210,7 @@ type statusMsg struct {
 	resume      map[string]string // session key → paneID showing the resume summary/full prompt
 	shownActual string            // the shown pane's current session id (may differ after /clear)
 	shownApp    string            // app for shownActual
+	degraded    bool              // the parked-pane listing failed; pane data is incomplete
 	focused     bool              // our terminal app is frontmost (for the chime)
 }
 
@@ -266,13 +276,12 @@ func pollStatus(store *index.Store, shown string, apps map[string]string) tea.Cm
 
 		byID8 := map[string]index.Status{}
 		resume := map[string]string{}
-		if parked, err := tmux.ParkedPanes(); err == nil {
-			for _, p := range parked {
-				txt, _ := tmux.CapturePane(p.PaneID, 8)
-				byID8[p.ID8] = classify(p.ID8, txt)
-				if appForKey(p.ID8) == index.AppClaude && status.IsResumePrompt(txt) {
-					resume[p.ID8] = p.PaneID
-				}
+		parked, parkedErr := tmux.ParkedPanes()
+		for _, p := range parked {
+			txt, _ := tmux.CapturePane(p.PaneID, 8)
+			byID8[p.ID8] = classify(p.ID8, txt)
+			if appForKey(p.ID8) == index.AppClaude && status.IsResumePrompt(txt) {
+				resume[p.ID8] = p.PaneID
 			}
 		}
 		if shown != "" {
@@ -315,7 +324,7 @@ func pollStatus(store *index.Store, shown string, apps map[string]string) tea.Cm
 			}
 		}
 		return statusMsg{byID8: byID8, external: external, resume: resume, shownActual: shownActual,
-			shownApp: shownApp, focused: focus.Focused(tmux.Socket)}
+			shownApp: shownApp, degraded: parkedErr != nil, focused: focus.Focused(tmux.Socket)}
 	}
 }
 
@@ -364,6 +373,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.all = msg.sessions
+		// Refresh the sticky app map. Entries are only ever added/confirmed —
+		// a scan that transiently misses a session (e.g. a locked Codex DB)
+		// must not flip its app, which would derail tmux session keys.
+		for _, s := range m.all {
+			m.appByID[s.SessionID] = s.AppName()
+		}
 		cmd := m.reconcilePendingNew()
 		m.rebuild()
 		var rcmd tea.Cmd
@@ -393,7 +408,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.externalStatus = msg.external
 		m.adoptShownID(msg.shownActual, msg.shownApp) // /clear changed the shown session's id
 		answer := m.autoAnswerResume(msg.resume)      // pick "full session as-is"
-		reaped := m.reconcileLive()                   // clean up sessions exited inside the dashboard
+		reaped := false
+		if !msg.degraded {
+			// Only reap on polls whose pane listing succeeded — an incomplete
+			// snapshot must never count as "your pane is gone".
+			reaped = m.reconcileLive()
+		}
 		if m.activeOnly || reaped {
 			m.rebuild()
 		}
@@ -682,7 +702,7 @@ func (m Model) showSelected() (tea.Model, tea.Cmd) {
 	}
 	prev := m.actualShownRef() // the pane's real id now (may have /clear'd) — park it correctly
 	_ = tmux.Unzoom()          // opening a session always returns to the split
-	created, err := tmux.ShowSession(tmux.SessionRef{ID: s.SessionID, Cwd: s.Cwd, App: s.AppName()}, prev)
+	created, err := tmux.ShowSession(tmux.SessionRef{ID: s.SessionID, Cwd: s.ResumeCwd(), App: s.AppName()}, prev)
 	if err != nil {
 		var c tea.Cmd
 		m.status, c = flash("error: " + err.Error())
@@ -745,6 +765,9 @@ func (m *Model) adoptShownID(actual, app string) {
 	newKey := tmux.SessionKey(actual, normalizeApp(app))
 	m.shown = actual
 	m.openIDs[actual] = true
+	if app != "" {
+		m.appByID[actual] = normalizeApp(app)
+	}
 	if old != "" {
 		delete(m.openIDs, old)
 		if st, ok := m.statusByID8[oldKey]; ok {
@@ -862,17 +885,24 @@ func (m *Model) autoAnswerResume(resume map[string]string) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// reapAfter is how long an open session must be continuously missing from our
+// tmux before it's reaped. Time-based, NOT poll-count-based: fs events (the
+// Codex WAL especially) can fire polls milliseconds apart, and a counter would
+// reap a healthy session that was merely mid break-pane/join-pane during a
+// burst. 4s comfortably covers a window switch but still beats the old
+// 2×(800ms..5s) poll counter for the common exit case.
+const reapAfter = 4 * time.Second
+
 // reconcileLive reaps sessions that exited inside the dashboard (e.g. /exit or
 // Ctrl-C closed their pane). A session is open iff it's live in our tmux (its
-// session key appears in the captured status set). We require it to be missing for two
-// consecutive polls before dropping it, to tolerate a poll that raced a
-// just-opened session. Returns whether anything changed.
+// session key appears in the captured status set). Returns whether anything
+// changed.
 func (m *Model) reconcileLive() bool {
 	if m.pendingNew != nil {
 		return false // a brand-new session is mid-launch; don't reap it
 	}
 	if m.liveMiss == nil {
-		m.liveMiss = map[string]int{}
+		m.liveMiss = map[string]time.Time{}
 	}
 	changed := false
 	for id := range m.openIDs {
@@ -881,8 +911,12 @@ func (m *Model) reconcileLive() bool {
 			delete(m.liveMiss, id)
 			continue
 		}
-		m.liveMiss[id]++
-		if m.liveMiss[id] >= 2 {
+		first, seen := m.liveMiss[id]
+		if !seen {
+			m.liveMiss[id] = time.Now()
+			continue
+		}
+		if time.Since(first) >= reapAfter {
 			delete(m.openIDs, id)
 			delete(m.liveMiss, id)
 			delete(m.doneIDs, key)
@@ -943,6 +977,9 @@ func (m *Model) persistWorkspace() {
 }
 
 func (m *Model) appForID(id string) string {
+	if app := m.appByID[id]; app != "" {
+		return app
+	}
 	for _, s := range m.all {
 		if s.SessionID == id {
 			return s.AppName()
@@ -998,7 +1035,7 @@ func (m *Model) restoreWorkspace() tea.Cmd {
 		if savedApp := saved.App(id); savedApp != index.AppClaude && app == index.AppClaude {
 			app = normalizeApp(savedApp)
 		}
-		refs = append(refs, tmux.SessionRef{ID: id, Cwd: s.Cwd, App: app})
+		refs = append(refs, tmux.SessionRef{ID: id, Cwd: s.ResumeCwd(), App: app})
 		m.openIDs[id] = true
 		if len(refs) >= maxRestore {
 			break
@@ -1033,7 +1070,7 @@ func (m *Model) restoreWorkspace() tea.Cmd {
 	if savedApp := saved.App(showID); savedApp != index.AppClaude && showApp == index.AppClaude {
 		showApp = normalizeApp(savedApp)
 	}
-	created, _ := tmux.ShowSession(tmux.SessionRef{ID: showID, Cwd: showSession.Cwd, App: showApp}, tmux.SessionRef{})
+	created, _ := tmux.ShowSession(tmux.SessionRef{ID: showID, Cwd: showSession.ResumeCwd(), App: showApp}, tmux.SessionRef{})
 	m.shown = showID
 	m.selID = showID
 

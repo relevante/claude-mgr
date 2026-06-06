@@ -13,6 +13,7 @@ type cacheEntry struct {
 	SessionID     string `json:"sessionId"`
 	ProjectDir    string `json:"projectDir"`
 	Cwd           string `json:"cwd"`
+	OriginCwd     string `json:"originCwd,omitempty"`
 	GitBranch     string `json:"gitBranch"`
 	App           string `json:"app,omitempty"`
 	Archived      bool   `json:"archived,omitempty"`
@@ -31,7 +32,7 @@ type cacheFile struct {
 	Entries map[string]cacheEntry `json:"entries"`
 }
 
-const cacheVersion = 4 // bumped: added ContextLimit
+const cacheVersion = 5 // bumped: added OriginCwd
 
 func (e cacheEntry) toMeta(path string) SessionMeta {
 	app := e.App
@@ -43,6 +44,7 @@ func (e cacheEntry) toMeta(path string) SessionMeta {
 		Path:          path,
 		ProjectDir:    e.ProjectDir,
 		Cwd:           e.Cwd,
+		OriginCwd:     e.OriginCwd,
 		GitBranch:     e.GitBranch,
 		App:           app,
 		Archived:      e.Archived,
@@ -70,6 +72,7 @@ func metaToEntry(m SessionMeta) cacheEntry {
 		SessionID:     m.SessionID,
 		ProjectDir:    m.ProjectDir,
 		Cwd:           m.Cwd,
+		OriginCwd:     m.OriginCwd,
 		GitBranch:     m.GitBranch,
 		App:           m.AppName(),
 		Archived:      m.Archived,

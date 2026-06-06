@@ -122,3 +122,42 @@ func TestExtractCodexUsage(t *testing.T) {
 		t.Fatalf("ContextLimit=%d, want 258400", m.ContextLimit)
 	}
 }
+
+// A locked Codex state DB (sqlite exits non-zero) must not wipe Codex rows
+// from the scan — Scan reuses the last good snapshot instead.
+func TestScanReusesLastCodexOnQueryFailure(t *testing.T) {
+	dir := t.TempDir()
+	state := filepath.Join(dir, "state.sqlite")
+	if err := os.WriteFile(state, []byte("placeholder"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Fake sqlite3: succeeds with one thread row until the fail-flag appears.
+	failFlag := filepath.Join(dir, "fail")
+	script := filepath.Join(dir, "sqlite3")
+	rows := `[{"id":"codex-1","rollout_path":"","cwd":"/w/p","title":"T","first_user_message":"f","preview":"p","tokens_used":0,"created_at_ms":1,"updated_at_ms":2,"git_branch":"","archived":0,"source":"cli","thread_source":"user"}]`
+	if err := os.WriteFile(script, []byte("#!/bin/sh\n[ -e "+failFlag+" ] && exit 5\necho '"+rows+"'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := &Store{
+		ProjectsDir:    filepath.Join(dir, "projects"), // empty: no claude sessions
+		CachePath:      filepath.Join(dir, "cache.json"),
+		CodexStatePath: state,
+		SQLitePath:     script,
+	}
+
+	got, err := s.Scan()
+	if err != nil || len(got) != 1 || got[0].SessionID != "codex-1" {
+		t.Fatalf("healthy scan: got %d rows err=%v, want the codex row", len(got), err)
+	}
+
+	if err := os.WriteFile(failFlag, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.Scan()
+	if err != nil {
+		t.Fatalf("degraded scan errored: %v", err)
+	}
+	if len(got) != 1 || got[0].SessionID != "codex-1" {
+		t.Fatalf("degraded scan: got %d rows, want last good codex row reused", len(got))
+	}
+}

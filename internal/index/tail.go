@@ -67,9 +67,16 @@ func extractMeta(m *SessionMeta) error {
 	scanTail(r, m)
 
 	// Rare fallbacks: only ~1% of sessions lack a last-prompt, and cwd is
-	// almost always in the tail. A single head read covers both when needed.
-	if (m.AiTitle == "" && m.LastPrompt == "" && m.FirstUserMsg == "") || m.Cwd == "" {
+	// almost always in the tail. A single head read covers all three cases:
+	// missing title, missing cwd, and a cwd that DRIFTED from the session's
+	// origin (the head read recovers OriginCwd so resume launches in the
+	// project dir Claude will actually search).
+	if (m.AiTitle == "" && m.LastPrompt == "" && m.FirstUserMsg == "") || m.Cwd == "" ||
+		cwdDrifted(m.Cwd, m.ProjectDir) {
 		scanHead(m)
+	}
+	if m.OriginCwd == m.Cwd {
+		m.OriginCwd = "" // only keep the origin when it actually differs
 	}
 	m.resolveAutoTitle()
 	return nil
@@ -112,7 +119,7 @@ func scanHead(m *SessionMeta) {
 			continue
 		}
 		applyRecord(&rec, m, true)
-		if m.FirstUserMsg != "" && m.Cwd != "" {
+		if m.FirstUserMsg != "" && m.Cwd != "" && m.OriginCwd != "" {
 			break
 		}
 	}
@@ -126,7 +133,18 @@ func applyRecord(rec *rawRecord, m *SessionMeta, head bool) {
 		m.LastActive = ts
 	}
 	if rec.Cwd != "" {
-		m.Cwd = rec.Cwd
+		if head {
+			// First cwd in the head IS the session's origin; never overwrite
+			// the tail's (current) cwd with it.
+			if m.OriginCwd == "" {
+				m.OriginCwd = rec.Cwd
+			}
+			if m.Cwd == "" {
+				m.Cwd = rec.Cwd
+			}
+		} else {
+			m.Cwd = rec.Cwd
+		}
 	}
 	if rec.GitBranch != "" {
 		m.GitBranch = rec.GitBranch

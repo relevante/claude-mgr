@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -75,7 +76,11 @@ func (s *Store) scanCodex() ([]SessionMeta, error) {
 	cmd := exec.Command(sqlitePath, "-readonly", "-json", "-cmd", ".timeout 1000", s.CodexStatePath, codexThreadsQuery)
 	data, err := cmd.Output()
 	if err != nil {
-		return nil, nil
+		// A real failure (locked DB while codex writes, missing sqlite3) must
+		// be visible to the caller: returning an empty success here made every
+		// Codex session vanish from the scan, which mislabeled their apps and
+		// eroded openIDs via reconcileLive.
+		return nil, fmt.Errorf("codex threads query: %w", err)
 	}
 	var rows []codexThreadRow
 	if len(strings.TrimSpace(string(data))) == 0 {

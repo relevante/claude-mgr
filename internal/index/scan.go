@@ -15,9 +15,10 @@ type Store struct {
 	CodexStatePath string // ~/.codex/state_5.sqlite
 	SQLitePath     string // sqlite3 executable
 
-	cache  cacheFile
-	Hits   int // files served from cache on the last Scan
-	Misses int // files (re)parsed on the last Scan
+	cache     cacheFile
+	lastCodex []SessionMeta // last successful Codex query, reused when the DB is locked
+	Hits      int           // files served from cache on the last Scan
+	Misses    int           // files (re)parsed on the last Scan
 }
 
 // NewStore builds a Store using standard paths, honoring CLAUDE_MGR_PROJECTS
@@ -98,7 +99,13 @@ func (s *Store) Scan() ([]SessionMeta, error) {
 		out = append(out, m)
 	}
 	if codex, err := s.scanCodex(); err == nil {
+		s.lastCodex = codex
 		out = append(out, codex...)
+	} else {
+		// Transient failure (state DB locked while codex writes): reuse the
+		// last good snapshot. Letting Codex sessions vanish for one scan
+		// mislabels their app and erodes openIDs via reconcileLive.
+		out = append(out, s.lastCodex...)
 	}
 
 	s.cache.Version = cacheVersion

@@ -63,6 +63,7 @@ type SessionMeta struct {
 	Path       string    // absolute path to the .jsonl
 	ProjectDir string    // encoded dir name under ~/.claude/projects (index key)
 	Cwd        string    // authoritative working dir, read from the transcript
+	OriginCwd  string    // cwd at session start, when it differs from Cwd (drift); "" otherwise
 	GitBranch  string    // last-seen git branch (informational)
 	LastActive time.Time // max(timestamp) seen in the tail window
 
@@ -98,6 +99,39 @@ func (m SessionMeta) AppName() string {
 		return AppClaude
 	}
 	return m.App
+}
+
+// ResumeCwd is the directory a resume must launch in. Claude scopes --resume
+// to the project dir derived from the session's ORIGINAL cwd; when the
+// recorded cwd drifted mid-session, resuming in the drifted dir fails with
+// "No conversation found with session ID". OriginCwd is only populated when
+// drift was detected, so this is just Cwd for the common case.
+func (m SessionMeta) ResumeCwd() string {
+	if m.OriginCwd != "" {
+		return m.OriginCwd
+	}
+	return m.Cwd
+}
+
+// cwdDrifted reports whether cwd no longer encodes to the transcript's
+// project dir — i.e. the session changed directory after launch. The encoding
+// (every non-alphanumeric byte → '-') only needs to be faithful enough for
+// equality: a false mismatch merely costs a head read, and a drift WITHIN one
+// project dir can't change resume behavior.
+func cwdDrifted(cwd, projectDir string) bool {
+	return cwd != "" && projectDir != "" && encodeCwd(cwd) != projectDir
+}
+
+func encodeCwd(p string) string {
+	b := []byte(p)
+	for i, c := range b {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		default:
+			b[i] = '-'
+		}
+	}
+	return string(b)
 }
 
 // resolveAutoTitle picks the best non-custom display name: aiTitle, else last
