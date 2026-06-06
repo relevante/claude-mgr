@@ -21,6 +21,7 @@ type cacheEntry struct {
 	FirstUserMsg  string `json:"firstUserMsg,omitempty"`
 	LastActive    int64  `json:"lastActive"` // unix nanos
 	ContextTokens int    `json:"contextTokens"`
+	ContextLimit  int    `json:"contextLimit,omitempty"`
 	FileSize      int64  `json:"fileSize"`
 	FileMtime     int64  `json:"fileMtime"` // unix nanos
 }
@@ -30,7 +31,7 @@ type cacheFile struct {
 	Entries map[string]cacheEntry `json:"entries"`
 }
 
-const cacheVersion = 3 // bumped: added App/Archived
+const cacheVersion = 4 // bumped: added ContextLimit
 
 func (e cacheEntry) toMeta(path string) SessionMeta {
 	app := e.App
@@ -49,6 +50,7 @@ func (e cacheEntry) toMeta(path string) SessionMeta {
 		LastPrompt:    e.LastPrompt,
 		FirstUserMsg:  e.FirstUserMsg,
 		ContextTokens: e.ContextTokens,
+		ContextLimit:  e.ContextLimit,
 		FileSize:      e.FileSize,
 		FileMtime:     time.Unix(0, e.FileMtime),
 	}
@@ -76,6 +78,7 @@ func metaToEntry(m SessionMeta) cacheEntry {
 		FirstUserMsg:  m.FirstUserMsg,
 		LastActive:    la,
 		ContextTokens: m.ContextTokens,
+		ContextLimit:  m.ContextLimit,
 		FileSize:      m.FileSize,
 		FileMtime:     m.FileMtime.UnixNano(),
 	}

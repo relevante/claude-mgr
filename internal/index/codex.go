@@ -1,7 +1,10 @@
 package index
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,6 +46,19 @@ type codexThreadRow struct {
 	Archived         int    `json:"archived"`
 	Source           string `json:"source"`
 	ThreadSource     string `json:"thread_source"`
+}
+
+type codexRolloutRecord struct {
+	Type    string `json:"type"`
+	Payload *struct {
+		Type string `json:"type"`
+		Info *struct {
+			LastTokenUsage *struct {
+				TotalTokens int `json:"total_tokens"`
+			} `json:"last_token_usage"`
+			ModelContextWindow int `json:"model_context_window"`
+		} `json:"info"`
+	} `json:"payload"`
 }
 
 func (s *Store) scanCodex() ([]SessionMeta, error) {
@@ -128,6 +144,49 @@ func fillCodexFileInfo(ms []SessionMeta) {
 		}
 		ms[i].FileSize = fi.Size()
 		ms[i].FileMtime = fi.ModTime()
+		extractCodexUsage(&ms[i])
+	}
+}
+
+func extractCodexUsage(m *SessionMeta) {
+	f, err := os.Open(m.Path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	size := m.FileSize
+	var start int64
+	if size > tailBytes {
+		start = size - tailBytes
+	}
+	if _, err := f.Seek(start, io.SeekStart); err != nil {
+		return
+	}
+	r := bufio.NewReaderSize(f, 128*1024)
+	if start > 0 {
+		if _, err := r.ReadBytes('\n'); err != nil && err != io.EOF {
+			return
+		}
+	}
+	sc := newLineScanner(r)
+	for sc.Scan() {
+		line := sc.Bytes()
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var rec codexRolloutRecord
+		if json.Unmarshal(line, &rec) != nil || rec.Type != "event_msg" ||
+			rec.Payload == nil || rec.Payload.Type != "token_count" || rec.Payload.Info == nil {
+			continue
+		}
+		info := rec.Payload.Info
+		if info.LastTokenUsage != nil && info.LastTokenUsage.TotalTokens > 0 {
+			m.ContextTokens = info.LastTokenUsage.TotalTokens
+		}
+		if info.ModelContextWindow > 0 {
+			m.ContextLimit = info.ModelContextWindow
+		}
 	}
 }
 

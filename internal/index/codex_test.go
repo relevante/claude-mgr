@@ -1,6 +1,8 @@
 package index
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -97,5 +99,26 @@ func TestCodexRowsToMetaTitleFallbackAndCreatedTime(t *testing.T) {
 func TestSessionMetaAppNameDefaultsClaude(t *testing.T) {
 	if got := (SessionMeta{}).AppName(); got != AppClaude {
 		t.Fatalf("AppName()=%q, want %q", got, AppClaude)
+	}
+}
+
+func TestExtractCodexUsage(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	body := `{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"total_tokens":1000},"model_context_window":200000}}}` + "\n" +
+		`{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"total_tokens":2500},"model_context_window":258400}}}` + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := SessionMeta{Path: path, FileSize: fi.Size()}
+	extractCodexUsage(&m)
+	if m.ContextTokens != 2500 {
+		t.Fatalf("ContextTokens=%d, want 2500", m.ContextTokens)
+	}
+	if m.ContextLimit != 258400 {
+		t.Fatalf("ContextLimit=%d, want 258400", m.ContextLimit)
 	}
 }

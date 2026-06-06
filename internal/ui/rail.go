@@ -375,8 +375,8 @@ func (m Model) ownsSession(s index.SessionMeta) bool {
 	return ok
 }
 
-// contextLimit is the assumed context-window size (tokens); defaults to 1M.
-const contextLimit = 1_000_000
+// defaultContextLimit is the fallback assumed context-window size (tokens).
+const defaultContextLimit = 1_000_000
 
 // contextPie returns a quarter-filled circle for the session's context usage,
 // colored neutral → amber → red as it fills. Empty for sessions with no turn.
@@ -384,7 +384,11 @@ func contextPie(s index.SessionMeta) (string, lipgloss.Style) {
 	if s.ContextTokens <= 0 {
 		return "", lipgloss.Style{}
 	}
-	frac := float64(s.ContextTokens) / contextLimit
+	limit := s.ContextLimit
+	if limit <= 0 {
+		limit = defaultContextLimit
+	}
+	frac := float64(s.ContextTokens) / float64(limit)
 	if frac > 1 {
 		frac = 1
 	}

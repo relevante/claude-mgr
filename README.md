@@ -1,22 +1,24 @@
 # claude-mgr
 
-**A single pane for all your Claude Code sessions, across every project.**
+**A single pane for all your Claude Code and OpenAI Codex CLI sessions, across every project.**
 
-You run Claude Code for lots of different things and end up with terminal windows
+You run agent CLIs for lots of different things and end up with terminal windows
 and tabs scattered everywhere — hard to track, easy to lose on reboot. `claude-mgr`
 is a persistent, fullscreen "home base": a session switcher on the left (grouped by
-project, with live status), and the focused Claude session running live on the
-right. Keep it up all the time, jump between threads with the keyboard, and nothing
-gets lost.
+project, with live status), and the focused Claude or Codex session running live on
+the right. Keep it up all the time, jump between threads with the keyboard, and
+nothing gets lost.
 
-It reads the sessions Claude Code already persists at
-`~/.claude/projects/*/<sessionId>.jsonl`, so **no session is ever lost** — every
-thread is one keystroke from `claude --resume`, even after a reboot.
+It reads the sessions Claude Code persists at
+`~/.claude/projects/*/<sessionId>.jsonl` and Codex persists in
+`~/.codex/state_5.sqlite`, so **no session is ever lost** — every thread is one
+keystroke from `claude --resume` or `codex resume`, even after a reboot.
 
 ## Setup
 
-**Requirements:** macOS (built/tested on Apple Terminal), `tmux`, Go 1.24+, and the
-`claude` CLI on your `PATH`.
+**Requirements:** macOS (built/tested on Apple Terminal), `tmux`, Go 1.24+,
+`sqlite3`, and the CLIs you want to manage (`claude` and/or `codex`) on your
+`PATH`.
 
 ```sh
 brew install tmux
@@ -35,28 +37,28 @@ quick look or for debugging).
 ## How it works
 
 - A dedicated **tmux** server (socket `claude-mgr`) renders and multiplexes the
-  live Claude panes, so terminal emulation, colors, resize, and **mouse-wheel
+  live agent panes, so terminal emulation, colors, resize, and **mouse-wheel
   scrolling** all just work. (tmux is only a terminal multiplexer — nothing to do
   with git.)
 - A single-binary **Go controller** (Bubble Tea) is the left rail. It reads the
   session index off disk and drives the right pane. Each agent's live status
-  (working / your-turn / idle) comes from Claude's own session registry, watched
-  with file-system notifications so the rail updates the instant a session's
-  state flips (with a slow poll as a safety net).
+  (working / your-turn / idle) comes from Claude's session registry and Codex pane
+  markers/lsof presence, watched with file-system notifications where available
+  (with a slow poll as a safety net).
 - Sessions you switch away from are **parked** in detached tmux windows — their
   processes keep running. Switching back rejoins the same live process.
 
 ## Keys
 
-These work **from anywhere**, even while typing in the Claude pane (`Option` =
+These work **from anywhere**, even while typing in the agent pane (`Option` =
 `⌥`; Meta+letter is more reliable than Meta+arrow in Apple Terminal):
 
 | Key | Action |
 |-----|--------|
-| `Option+Tab` (or `Option+L`) | toggle focus between the rail and the Claude pane |
+| `Option+Tab` (or `Option+L`) | toggle focus between the rail and the agent pane |
 | `Option+↑` / `Option+↓` | switch to the previous / next session and load it on the right (wraps around) |
 | `Option+'` / `Option+/` | jump to the previous / next session needing attention — working, your-turn, or done (wraps around) |
-| `Option+Z` | zoom the Claude pane fullscreen / back |
+| `Option+Z` | zoom the agent pane fullscreen / back |
 | `Option+T` | open a new terminal window in the current session's project directory |
 
 In the **rail**:
@@ -66,17 +68,17 @@ In the **rail**:
 | `↑`/`↓` (or `k`/`j`) · mouse wheel | move selection |
 | `Ctrl-d`/`Ctrl-u` (or `PgDn`/`PgUp`) | jump half a screen · `g`/`G` top/bottom |
 | `↵` | open the selected thread on the right (resumes it) |
-| `Tab` / `→` | jump focus into the Claude pane to type |
-| `z` | zoom the Claude pane |
+| `Tab` / `→` | jump focus into the agent pane to type |
+| `z` | zoom the agent pane |
 | `/` | fuzzy-search across all threads |
 | `s` | toggle flat "recent activity" sort (across all projects) |
 | `f` | toggle "active only" filter |
 | `c` | cycle the completion chime: off → each sound → off (the current `♪ <sound>` shows in the title bar) |
-| `r` | rename the selected thread · `n` new session · `p` pin · `a` archive (`A` show) · `e` show/hide empty |
+| `r` | rename the selected thread · `n` new session (`Ctrl+A` toggles Claude/Codex in the prompt) · `p` pin · `a` archive (`A` show) · `e` show/hide empty |
 | `q` | detach (background — sessions keep running; `claude-mgr` re-attaches) |
 | `Q` | quit (tear down the dashboard; sessions stay resumable on disk) |
 
-`q` and `Q` ask for a `y` to confirm. From the Claude pane you can also click the
+`q` and `Q` ask for a `y` to confirm. From the agent pane you can also click the
 rail to focus it, or use `Ctrl-b ←`.
 
 ## The status icons
@@ -86,7 +88,9 @@ Each row shows **where/what** on the left, and a **context-fill pie** on the rig
 | Icon | Meaning |
 |------|---------|
 | `▌` (left bar) | this session is the one shown on the right |
-| `▶` green | working (Claude is busy) |
+| `✳` orange | Claude session |
+| `⬡` teal | Codex session |
+| `▶` green | working (agent is busy) |
 | `▷` green | a background shell is still running (Claude is at the prompt) |
 | `⚠` red | needs permission / your turn (a confirm dialog) |
 | `◐` red | blocked waiting on you (another prompt) |
@@ -120,31 +124,35 @@ hollow); the glyph encodes **what**.
 
 State lives under `~/.config/claude-mgr/`: `index.json` (session cache),
 `overlay.json` (names/pins/archives), `workspace.json` (open threads). Nothing is
-written into your Claude session data.
+written directly into your Claude or Codex session data.
 
 ## Project layout
 
 ```
 main.go                 launcher + __controller subcommand + --dump
-internal/index/         session discovery, tail-read, (path,mtime,size) cache
+internal/index/         session discovery, tail-read/sqlite, (path,mtime,size) cache
 internal/tmux/          tmux CLI wrapper: split, park/join, zoom, capture, keys
 internal/status/        classify pane content → working / permission / idle
-internal/live/          map running claude pids → sessions (registry-based)
+internal/live/          map running CLI pids → sessions (Claude registry, Codex lsof)
 internal/overlay/       custom names, pins, archives
 internal/workspace/     open-thread persistence + restore
 internal/ui/            Bubble Tea rail: list, search, rename, new-session, status
 ```
 
-See `spike/FINDINGS.md` for the verified terminal-behavior facts the design rests on.
+See `spike/FINDINGS.md` and `spike/CODEX-FINDINGS.md` for the verified
+terminal-behavior facts the design rests on.
 
 ## Notes & limits
 
 - macOS-focused (uses `open -a Terminal` for `Option+T`; overridable via
-  `CLAUDE_MGR_TERMINAL`). The context pie assumes a 1M context window.
-- Status (working / your-turn / idle) comes from Claude's own real-time session
-  registry (`~/.claude/sessions/<pid>.json`: `busy`/`waiting`/`idle`); pane
-  scraping is only a fallback and refines the permission ⚠. A future change to
-  the registry shape or the `internal/status/detect.go` markers could require
-  re-tuning.
+  `CLAUDE_MGR_TERMINAL`). The context pie uses each app's reported context window
+  when available, otherwise a 1M default.
+- Claude status comes from Claude's real-time session registry
+  (`~/.claude/sessions/<pid>.json`: `busy`/`waiting`/`idle`), with pane scraping
+  as a fallback/refinement for permission ⚠. Codex sessions managed inside the
+  dashboard use pane markers; Codex sessions running elsewhere are shown as live
+  via lsof, but external working vs idle is not reliably exposed by Codex.
+  A future change to these registry shapes or `internal/status/detect.go` markers
+  could require re-tuning.
 - Keybindings/look changes can be applied to a running dashboard live; behavior
   changes need a restart (`Q`, then `claude-mgr`) to load the new binary.

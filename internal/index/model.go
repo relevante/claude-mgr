@@ -77,6 +77,7 @@ type SessionMeta struct {
 	// assistant turn (input + cache creation + cache read), i.e. how full the
 	// model's context window is. 0 if the session has no assistant turn yet.
 	ContextTokens int
+	ContextLimit  int // model context window, 0 means UI default
 
 	// File identity, used for (path,mtime,size) cache invalidation.
 	FileSize  int64

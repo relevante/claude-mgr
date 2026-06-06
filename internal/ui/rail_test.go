@@ -124,3 +124,14 @@ func TestBrandGlyph(t *testing.T) {
 		}
 	}
 }
+
+func TestContextPieUsesSessionLimit(t *testing.T) {
+	got, _ := contextPie(index.SessionMeta{ContextTokens: 250_000})
+	if got != "◔" {
+		t.Fatalf("default limit pie=%q, want ◔", got)
+	}
+	got, _ = contextPie(index.SessionMeta{ContextTokens: 250_000, ContextLimit: 500_000})
+	if got != "◑" {
+		t.Fatalf("session limit pie=%q, want ◑", got)
+	}
+}
