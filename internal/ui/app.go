@@ -98,7 +98,8 @@ type Model struct {
 	wsPath         string            // workspace file path
 	openIDs        map[string]bool   // sessions open in the dashboard this run
 	appByID        map[string]string // sticky session→app memory; never cleared by a scan gap
-	liveMiss       map[string]time.Time // when an open session first went missing from our tmux
+	seenLive       map[string]bool   // open sessions positively observed alive this run (reap gate)
+	liveMiss       map[string]time.Time // when a seen-live session first went missing from our tmux
 	answeredResume map[string]int64 // session key → unix-ms we last auto-answered its resume prompt
 	restored       bool             // workspace restore attempted
 
@@ -897,6 +898,15 @@ const reapAfter = 4 * time.Second
 // Ctrl-C closed their pane). A session is open iff it's live in our tmux (its
 // session key appears in the captured status set). Returns whether anything
 // changed.
+//
+// CRITICAL invariant: only a session we have POSITIVELY seen alive this run is
+// ever reaped. "Exited inside the dashboard" presupposes the pane once existed,
+// so a session that never appeared in a scan cannot have been user-exited —
+// its absence means our detection is wrong (key mismatch, a scan gap, a capture
+// hiccup, a poll that raced window creation), not that it's gone. Reaping on
+// mere absence turned every such glitch into PERMANENT workspace loss, because
+// the reap immediately rewrites workspace.json with the shrunken set. Gating on
+// seenLive makes the persisted set monotonic until a real, observed exit.
 func (m *Model) reconcileLive() bool {
 	if m.pendingNew != nil {
 		return false // a brand-new session is mid-launch; don't reap it
@@ -904,11 +914,22 @@ func (m *Model) reconcileLive() bool {
 	if m.liveMiss == nil {
 		m.liveMiss = map[string]time.Time{}
 	}
+	if m.seenLive == nil {
+		m.seenLive = map[string]bool{}
+	}
 	changed := false
 	for id := range m.openIDs {
 		key := tmux.SessionKey(id, m.appForID(id))
 		if _, ok := m.statusByID8[key]; ok {
+			m.seenLive[id] = true
 			delete(m.liveMiss, id)
+			continue
+		}
+		if !m.seenLive[id] {
+			// Never observed alive — don't trust this absence. Leave it in the
+			// open set (it stays restorable) rather than risk dropping a healthy
+			// session whose pane we simply failed to match.
+			dbg("reconcile: %s (%s, key=%s) absent but never seen live — keeping", tmux.Short(id), m.appForID(id), key)
 			continue
 		}
 		first, seen := m.liveMiss[id]
@@ -917,8 +938,10 @@ func (m *Model) reconcileLive() bool {
 			continue
 		}
 		if time.Since(first) >= reapAfter {
+			dbg("reconcile: reaping %s (%s, key=%s) — gone %s after being seen", tmux.Short(id), m.appForID(id), key, time.Since(first).Round(time.Millisecond))
 			delete(m.openIDs, id)
 			delete(m.liveMiss, id)
+			delete(m.seenLive, id)
 			delete(m.doneIDs, key)
 			if m.shown == id {
 				m.shown = ""

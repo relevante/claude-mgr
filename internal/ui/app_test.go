@@ -13,12 +13,14 @@ import (
 // Codex WAL can fire polls milliseconds apart) can't reap a healthy session
 // that was merely mid window-switch.
 func TestReconcileLiveReapsByTimeNotPollCount(t *testing.T) {
+	// A session already observed alive this run (the precondition for reaping).
 	newModel := func() *Model {
 		return &Model{
 			wsPath:      filepath.Join(t.TempDir(), "ws.json"),
 			openIDs:     map[string]bool{"aaaaaaaa-1111": true},
 			appByID:     map[string]string{},
-			statusByID8: map[string]index.Status{}, // session missing from panes
+			seenLive:    map[string]bool{"aaaaaaaa-1111": true},
+			statusByID8: map[string]index.Status{}, // now missing from panes
 		}
 	}
 
@@ -34,11 +36,11 @@ func TestReconcileLiveReapsByTimeNotPollCount(t *testing.T) {
 		t.Fatal("session dropped from openIDs during a poll burst")
 	}
 
-	// Sustained absence: a miss older than reapAfter reaps on the next poll.
+	// Sustained absence after being seen: a miss older than reapAfter reaps.
 	m = newModel()
 	m.liveMiss = map[string]time.Time{"aaaaaaaa-1111": time.Now().Add(-reapAfter - time.Second)}
 	if !m.reconcileLive() {
-		t.Fatal("sustained absence must reap")
+		t.Fatal("sustained absence of a seen session must reap")
 	}
 	if m.openIDs["aaaaaaaa-1111"] {
 		t.Fatal("session still open after sustained absence")
@@ -53,6 +55,28 @@ func TestReconcileLiveReapsByTimeNotPollCount(t *testing.T) {
 	}
 	if _, stale := m.liveMiss["aaaaaaaa-1111"]; stale {
 		t.Fatal("miss clock not cleared when the session reappeared")
+	}
+}
+
+// The core data-loss guard: a session that was NEVER observed alive (a
+// key mismatch, scan gap, or a poll that raced window creation) must never be
+// reaped, no matter how long it's been "absent" — reaping it would silently
+// drop a healthy session from the persisted workspace.
+func TestReconcileLiveNeverReapsUnseenSession(t *testing.T) {
+	m := &Model{
+		wsPath:      filepath.Join(t.TempDir(), "ws.json"),
+		openIDs:     map[string]bool{"bbbbbbbb-2222": true},
+		appByID:     map[string]string{},
+		seenLive:    map[string]bool{}, // never seen
+		statusByID8: map[string]index.Status{},
+		// Even with an ancient miss timestamp, the unseen guard wins.
+		liveMiss: map[string]time.Time{"bbbbbbbb-2222": time.Now().Add(-time.Hour)},
+	}
+	if m.reconcileLive() {
+		t.Fatal("reaped a session that was never seen alive")
+	}
+	if !m.openIDs["bbbbbbbb-2222"] {
+		t.Fatal("unseen session dropped from openIDs — workspace would shrink")
 	}
 }
 
