@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -266,5 +267,44 @@ func TestNewPromptAppToggleKey(t *testing.T) {
 		if got.input.Prompt != c.wantPrompt {
 			t.Errorf("%s: prompt=%q, want %q", c.name, got.input.Prompt, c.wantPrompt)
 		}
+	}
+}
+
+func TestUnescapePath(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{`/Users/j/Personal/Travel\ Documents/2026-summer`, "/Users/j/Personal/Travel Documents/2026-summer"},
+		{"/no/escapes/here", "/no/escapes/here"},
+		{`/a/b\(c\)/d`, "/a/b(c)/d"},
+		{`trailing\`, "trailing"},
+		{`double\\back`, `double\back`},
+	}
+	for _, c := range cases {
+		if got := unescapePath(c.in); got != c.want {
+			t.Errorf("unescapePath(%q)=%q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// A dragged-in path (backslash-escaped space) must Tab-complete against the
+// real directory name and settle to a plain, space-bearing path.
+func TestCompleteDirPathHandlesEscapedSpaces(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "Travel Documents")
+	if err := os.MkdirAll(filepath.Join(sub, "2026-summer"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Escaped-space partial completes to the real dir (plain space, trailing /).
+	got := completeDirPath(filepath.Join(root, `Travel\ Docum`))
+	want := sub + "/"
+	if got != want {
+		t.Fatalf("escaped partial: completeDirPath=%q, want %q", got, want)
+	}
+
+	// And the completed path (now with a literal space) descends on the next Tab.
+	got = completeDirPath(sub + "/")
+	want = filepath.Join(sub, "2026-summer") + "/"
+	if got != want {
+		t.Fatalf("plain-space descend: completeDirPath=%q, want %q", got, want)
 	}
 }

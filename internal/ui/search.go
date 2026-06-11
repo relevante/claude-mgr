@@ -198,7 +198,7 @@ func newPrompt(app string) string {
 // launchNew opens a brand-new agent session in cwd and records a pending
 // adoption so the real session id can be bound once the app writes metadata.
 func (m Model) launchNew(cwd, app string) (tea.Model, tea.Cmd) {
-	cwd = expandHome(strings.TrimSpace(cwd))
+	cwd = expandHome(unescapePath(strings.TrimSpace(cwd)))
 	if cwd == "" {
 		return m, nil
 	}
@@ -284,6 +284,31 @@ func (m *Model) reconcilePendingNew() tea.Cmd {
 	return c
 }
 
+// unescapePath removes shell-style backslash escapes from a path. macOS
+// drag-and-drop (and copy-as-pathname) escape spaces and other specials as
+// "\ ", "\(", etc.; a backslash makes the next byte literal. Without this, a
+// dragged-in "Travel\ Documents" fails os.Stat and breaks Tab completion (the
+// backslash never prefix-matches the real space). A no-op when there's no
+// backslash, so normal typed paths are untouched.
+func unescapePath(p string) string {
+	if !strings.Contains(p, `\`) {
+		return p
+	}
+	var b strings.Builder
+	b.Grow(len(p))
+	for i := 0; i < len(p); i++ {
+		if p[i] == '\\' {
+			if i+1 < len(p) {
+				i++
+				b.WriteByte(p[i]) // next byte taken literally
+			}
+			continue // a trailing backslash is dropped
+		}
+		b.WriteByte(p[i])
+	}
+	return b.String()
+}
+
 // expandHome expands a leading ~ to the user's home directory.
 func expandHome(p string) string {
 	if strings.HasPrefix(p, "~") {
@@ -299,6 +324,10 @@ func expandHome(p string) string {
 // complete to their longest common prefix. Only directories are offered, since
 // the field is a working directory.
 func completeDirPath(partial string) string {
+	// Normalize away any backslash escapes (e.g. a dragged-in path) up front, so
+	// matching works on the real directory name and the field settles to a plain,
+	// space-bearing path that launchNew accepts.
+	partial = unescapePath(partial)
 	if partial == "" {
 		return partial
 	}
