@@ -247,10 +247,48 @@ term.onData((d) => {
 
 // Refit whenever the terminal's box actually changes (layout settle, rotation,
 // keyboard) so the tmux pane stays exactly matched to the visible area — no
-// stale row count, no blank strip below the content. Scrolling is left to
-// xterm's own native touch handling (smooth, with the scrollback above).
+// stale row count, no blank strip below the content.
 const ro = new ResizeObserver(() => sendResize());
 ro.observe($("term"));
+
+// Touch scrolling. Claude's TUI uses the alternate screen, so xterm has no local
+// scrollback to scroll — native touch does nothing. Forward one-finger drags to
+// tmux/Claude as SGR mouse-wheel events (mouse mode is on), exactly like the
+// desktop wheel. We capture EVERY drag (always preventDefault) and accumulate
+// movement, so behavior is identical whether you drag slow or fast — the earlier
+// inconsistency was from only intercepting large drags and letting slow ones
+// fall through to xterm.
+(function enableTouchScroll() {
+  const el = $("term");
+  let lastY = null;
+  let accum = 0;
+  const STEP = 16; // px of drag per wheel notch
+  el.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 1) { lastY = e.touches[0].clientY; accum = 0; }
+    else lastY = null;
+  }, { passive: true });
+  el.addEventListener(
+    "touchmove",
+    (e) => {
+      if (lastY === null || e.touches.length !== 1) return;
+      e.preventDefault(); // always own the drag so xterm/native never competes
+      const y = e.touches[0].clientY;
+      accum += y - lastY;
+      lastY = y;
+      let notches = 0;
+      while (accum >= STEP) { accum -= STEP; notches++; }   // drag down → older content
+      while (accum <= -STEP) { accum += STEP; notches--; }
+      if (!notches) return;
+      // Fixed position (pane center) so behavior doesn't vary by where you touch.
+      const col = Math.max(1, Math.floor(term.cols / 2));
+      const row = Math.max(1, Math.floor(term.rows / 2));
+      const seq = `\x1b[<${notches > 0 ? 64 : 65};${col};${row}M`;
+      wsSend({ type: "input", data: seq.repeat(Math.abs(notches)) });
+    },
+    { passive: false, capture: true }
+  );
+  el.addEventListener("touchend", () => { lastY = null; }, { passive: true });
+})();
 
 // Only shrink the app for the keyboard when one is actually up; otherwise leave
 // the CSS height (100dvh) so the layout fills the real screen and the key bar
