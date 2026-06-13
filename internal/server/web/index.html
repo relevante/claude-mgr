@@ -19,7 +19,23 @@
         <button data-f="waiting">Waiting</button>
         <button data-f="all">All</button>
       </div>
+      <button id="newBtn" title="New session">＋</button>
     </header>
+
+    <div id="modal" hidden>
+      <div class="sheet">
+        <div class="sheet-head">
+          <span>New session</span>
+          <span id="appToggle">
+            <button data-app="claude" class="on">Claude</button>
+            <button data-app="codex">Codex</button>
+          </span>
+        </div>
+        <div class="sheet-sub">Pick a project to start in:</div>
+        <div id="projList"></div>
+        <button id="modalCancel">Cancel</button>
+      </div>
+    </div>
 
     <section id="list" class="open">
       <div id="groups"></div>

@@ -178,8 +178,9 @@ function selectSession(id) {
 
 function openTerminal(id) {
   const proto = location.protocol === "https:" ? "wss" : "ws";
+  const q = id ? `&session=${id}` : ""; // no id → show whatever the server selected
   ws = new WebSocket(
-    `${proto}://${location.host}/api/terminal?token=${encodeURIComponent(token)}&session=${id}`
+    `${proto}://${location.host}/api/terminal?token=${encodeURIComponent(token)}${q}`
   );
   ws.binaryType = "arraybuffer";
   ws.onopen = () => sendResize();
@@ -218,6 +219,66 @@ $("ctrlBtn").onclick = () => {
   ctrlArmed = !ctrlArmed;
   $("ctrlBtn").classList.toggle("on", ctrlArmed);
 };
+
+// --- new session ------------------------------------------------------------
+let newApp = "claude";
+const modal = $("modal");
+$("newBtn").onclick = openNewModal;
+$("modalCancel").onclick = () => (modal.hidden = true);
+modal.onclick = (e) => {
+  if (e.target === modal) modal.hidden = true; // tap backdrop to dismiss
+};
+for (const b of document.querySelectorAll("#appToggle button")) {
+  b.onclick = () => {
+    newApp = b.dataset.app;
+    for (const o of document.querySelectorAll("#appToggle button")) o.classList.toggle("on", o === b);
+  };
+}
+
+function openNewModal() {
+  const seen = new Set();
+  const items = [];
+  for (const g of lastGroups) {
+    if (!g.cwd || seen.has(g.cwd)) continue;
+    seen.add(g.cwd);
+    items.push({ label: g.label, cwd: g.cwd });
+  }
+  items.sort((a, b) => a.label.localeCompare(b.label));
+  const list = $("projList");
+  list.innerHTML = "";
+  for (const it of items) {
+    const el = document.createElement("div");
+    el.className = "proj";
+    el.textContent = it.label;
+    el.onclick = () => createSession(it.cwd, it.label);
+    list.appendChild(el);
+  }
+  modal.hidden = false;
+}
+
+async function createSession(cwd, label) {
+  modal.hidden = true;
+  activeId = null;
+  titleEl.textContent = "new · " + label;
+  listEl.classList.remove("open");
+  const r = await api("/api/new", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cwd, app: newApp }),
+  });
+  if (!r.ok) {
+    alert(await r.text());
+    return;
+  }
+  // The server has pointed the remote session at the new window.
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    term.clear();
+    sendResize();
+  } else {
+    openTerminal(); // no id → shows the server-selected new window
+  }
+  loadSessions();
+}
 
 // --- go ---------------------------------------------------------------------
 loadSessions();

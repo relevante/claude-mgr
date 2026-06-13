@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/creack/pty"
@@ -66,6 +67,51 @@ func (s *Server) isLiveElsewhere(m index.SessionMeta) bool {
 		return live.CodexSessions()[m.SessionID]
 	}
 	return live.Sessions(s.store.ProjectsDir)[m.SessionID]
+}
+
+// newSession launches a brand-new agent in cwd as a parked window, waits briefly
+// for it to register its real session id, adopts the window under s_<key>, and
+// points the remote viewer at it. Returns the new id ("" if it didn't register
+// in time — the window is still shown, just not yet adopted).
+func (s *Server) newSession(cwd, app string) (string, error) {
+	if app == "" {
+		app = index.AppClaude
+	}
+	if err := tmux.EnsureRemote(); err != nil {
+		return "", err
+	}
+	winID, paneID, err := tmux.NewParked(cwd, app)
+	if err != nil {
+		return "", err
+	}
+	id := s.awaitNewID(paneID, app)
+	if id != "" {
+		_ = tmux.AdoptNew(winID, tmux.SessionKey(id, app))
+		_ = tmux.SelectRemoteWindow(tmux.SessionKey(id, app))
+	} else {
+		_ = tmux.SelectRemoteWindowID(winID)
+	}
+	return id, nil
+}
+
+// awaitNewID polls the new pane's pid → registry until the agent reports its
+// session id, up to ~5s.
+func (s *Server) awaitNewID(paneID, app string) string {
+	pid, ok := tmux.PanePID(paneID)
+	if !ok {
+		return ""
+	}
+	for i := 0; i < 20; i++ {
+		if app == index.AppCodex {
+			if id := live.CodexSessionForPID(pid); id != "" {
+				return id
+			}
+		} else if id := live.SessionForPID(s.store.ProjectsDir, pid); id != "" {
+			return id
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return ""
 }
 
 // killSession terminates a parked session's process. See tmux.KillParked for the

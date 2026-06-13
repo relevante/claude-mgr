@@ -66,6 +66,7 @@ func (s *Server) handler() http.Handler {
 func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions", s.auth(s.handleSessions))
 	mux.HandleFunc("GET /api/sessions/stream", s.auth(s.handleStream))
+	mux.HandleFunc("POST /api/new", s.auth(s.handleNew))
 	mux.HandleFunc("POST /api/sessions/{id}/{action}", s.auth(s.handleAction))
 	mux.HandleFunc("GET /api/terminal", s.auth(s.handleTerminal))
 	mux.Handle("/", s.staticHandler())

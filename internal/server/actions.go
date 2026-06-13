@@ -43,6 +43,24 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
+// handleNew launches a brand-new session in a chosen project directory.
+func (s *Server) handleNew(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Cwd string `json:"cwd"`
+		App string `json:"app"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Cwd) == "" {
+		http.Error(w, "cwd required", http.StatusBadRequest)
+		return
+	}
+	id, err := s.newSession(strings.TrimSpace(body.Cwd), body.App)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]string{"id": id})
+}
+
 // findMeta resolves a session id to its current metadata (for app/cwd), via a
 // cheap cached Scan. Returns false if the id is unknown.
 func (s *Server) findMeta(id string) (index.SessionMeta, bool) {
