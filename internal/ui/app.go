@@ -123,6 +123,11 @@ type pendingNew struct {
 	since time.Time
 }
 
+// Overlay exposes the model's shared overlay so an in-process HTTP server can
+// read/write the SAME instance (no second writer racing the file). Safe to call
+// after New; the overlay is concurrency-safe.
+func (m Model) Overlay() *overlay.Overlay { return m.ov }
+
 // New builds the initial model.
 func New(store *index.Store) Model {
 	ti := textinput.New()

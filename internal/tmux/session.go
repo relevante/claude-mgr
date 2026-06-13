@@ -226,6 +226,18 @@ func RestoreParked(refs []SessionRef) {
 	}
 }
 
+// KillParked kills a session's parked window (s_<key>), terminating its process.
+// No-op (nil) when the window doesn't exist — e.g. the session is currently
+// shown on the desktop rather than parked, which we deliberately leave alone so
+// a remote kill can't yank a session out from under active desktop work.
+func KillParked(key string) error {
+	win := "s_" + key
+	if !windowExists(win) {
+		return nil
+	}
+	return run("kill-window", "-t", Session+":"+win)
+}
+
 // Detach detaches all clients from our session, leaving the dashboard (and all
 // its sessions) running in the background to be re-attached later.
 func Detach() error {

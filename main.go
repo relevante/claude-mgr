@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"claude-mgr/internal/index"
+	"claude-mgr/internal/server"
 	"claude-mgr/internal/tmux"
 	"claude-mgr/internal/ui"
 )
@@ -30,6 +31,7 @@ func main() {
 	}
 
 	dump := flag.Bool("dump", false, "print the discovered session index and exit")
+	serve := flag.String("serve", "", "also serve the web UI on this address, e.g. 127.0.0.1:8787")
 	flag.Parse()
 
 	if *dump {
@@ -38,6 +40,13 @@ func main() {
 			os.Exit(1)
 		}
 		return
+	}
+
+	// The controller runs in a separate process spawned by tmux; pass the serve
+	// address through the environment it inherits from this (server-starting)
+	// launcher. Only takes effect when the dashboard is started fresh.
+	if *serve != "" {
+		_ = os.Setenv("CLAUDE_MGR_SERVE", *serve)
 	}
 
 	if err := launch(); err != nil {
@@ -59,13 +68,19 @@ func launch() error {
 	return tmux.Attach() // replaces this process with the tmux client
 }
 
-// runController runs the Bubble Tea rail.
+// runController runs the Bubble Tea rail. When CLAUDE_MGR_SERVE is set it also
+// starts the web server in-process, sharing the model's overlay so the TUI and
+// HTTP handlers never race a second writer.
 func runController() error {
 	store, err := index.NewStore()
 	if err != nil {
 		return err
 	}
-	p := tea.NewProgram(ui.New(store), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	m := ui.New(store)
+	if addr := os.Getenv("CLAUDE_MGR_SERVE"); addr != "" {
+		go server.Run(addr, store, m.Overlay()) //nolint:errcheck // errors go to the server log; stderr would corrupt the TUI
+	}
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err = p.Run()
 	return err
 }
