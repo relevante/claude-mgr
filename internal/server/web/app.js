@@ -314,6 +314,19 @@ $("ctrlBtn").onclick = () => {
   $("ctrlBtn").classList.toggle("on", ctrlArmed);
 };
 
+// --- compose bar ------------------------------------------------------------
+// A real input field so iOS dictation/autocorrect work normally (they replace
+// partials in place); on submit we send the finished line + Enter to the agent.
+// Feeding xterm's hidden textarea directly makes dictation accumulate partials.
+$("compose").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const input = $("composeInput");
+  const v = input.value;
+  if (v) wsSend({ type: "input", data: v + "\r" });
+  input.value = "";
+  input.focus();
+});
+
 // --- new session ------------------------------------------------------------
 let newApp = "claude";
 const modal = $("modal");
