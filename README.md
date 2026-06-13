@@ -131,8 +131,8 @@ written directly into your Claude or Codex session data.
 ## Remote access (phone / browser)
 
 `claude-mgr` can serve a mobile web UI so you can monitor and drive your sessions
-from your phone — a touch session list (with the rail's pin/rename/archive/kill
-actions) plus a real terminal for full interactive control of the focused agent.
+from your phone — a touch session list plus a real `xterm.js` terminal for full
+interactive control of the focused agent.
 
 ```sh
 claude-mgr --serve 127.0.0.1:8787      # launch the dashboard AND the web server
@@ -143,20 +143,41 @@ can't race the desktop), and only when you pass `--serve` — without it, nothin
 changes. Reach it over **[Tailscale](https://tailscale.com)**: with your Mac and
 phone on the same tailnet, bind to the tailnet address (e.g.
 `--serve 100.x.y.z:8787`) and open `http://<mac>:8787/?token=<token>` on the
-phone. Do **not** expose the port to the public internet.
+phone. Binding to the tailnet IP limits reachability to your tailnet (governed by
+its ACLs); the token still gates use. Do **not** expose the port publicly or via
+Tailscale Funnel.
 
-- **Auth:** a bearer token, from `CLAUDE_MGR_SERVE_TOKEN` or auto-generated to
-  `~/.config/claude-mgr/serve-token` (the page URL carries it once, then the
-  browser remembers it).
-- **How it works:** the phone attaches to a grouped tmux session
-  (`<session>-remote`) that shares the dashboard's parked windows but keeps its
-  own selected window and size, so navigating on the phone doesn't yank the
-  desktop. Opening a session remotely *parks* it (never steals the desktop's
-  pane); a session already shown on the desktop must be parked there first.
-- The web UI loads xterm.js from a CDN, so the phone needs internet (the rest is
-  served from your Mac). Errors go to `~/.config/claude-mgr/serve.log` (never the
-  TUI). Already running a dashboard? `--serve` takes effect on a fresh launch
-  (`Q`, then relaunch with the flag).
+**What you get on the phone**
+
+- **Session list** grouped by project, with live status dots and a
+  **Open / Waiting / All** filter (defaults to *Open* = live in claude-mgr, like
+  the desktop's active-only view). Each row shows time-since-active; tap a session
+  to open its terminal, or **✏️** to rename it.
+- **A real terminal.** Drag to scroll back through history; tap to focus it and
+  type directly (so slash-command autocomplete, menus, and `y/n` prompts work). A
+  **key bar** supplies keys a phone lacks — `Esc` `⇥` `⇧⇥` (Shift-Tab mode cycle)
+  `Ctrl` arrows `⏎` — and a **compose bar** lets you type or **dictate** a message
+  and send it (dictation misbehaves typed straight into a terminal).
+- **＋ New session** in any of your projects (Claude or Codex), started parked and
+  shown immediately.
+
+**How it works / notes**
+
+- **Auth:** a bearer token from `CLAUDE_MGR_SERVE_TOKEN`, else auto-generated to
+  `~/.config/claude-mgr/serve-token`. The page URL carries it once, then it's
+  remembered. Added to your iOS home screen, the standalone app prompts for the
+  token once (its storage is separate from Safari and a manifest can't carry a
+  secret), then remembers it.
+- The phone attaches to a grouped tmux session (`<session>-remote`) that shares
+  the dashboard's parked windows but keeps its own selected window/size, so phone
+  navigation never yanks the desktop. Opening a session *parks* it rather than
+  stealing the desktop's pane — including the one currently shown at the desk,
+  which is broken out into its own window (its process keeps running; the desktop
+  rail goes full-width until you pick a session there again).
+- xterm.js loads from a CDN, so the phone needs internet (the rest is served from
+  your Mac). Server errors go to `~/.config/claude-mgr/serve.log`, never the TUI.
+  Already running a dashboard? `--serve` takes effect on a fresh launch (`Q`, then
+  relaunch with the flag), or hot-swap the controller pane to pick it up.
 
 ## Project layout
 
