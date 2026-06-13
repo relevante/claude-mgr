@@ -259,35 +259,52 @@ ro.observe($("term"));
 // inconsistency was from only intercepting large drags and letting slow ones
 // fall through to xterm.
 (function enableTouchScroll() {
-  const el = $("term");
-  let lastY = null;
-  let accum = 0;
+  // A transparent overlay over the terminal intercepts touches before xterm,
+  // whose own drag handlers would otherwise start a text selection over rendered
+  // ("gray") content and fight the scroll. We distinguish gestures: a DRAG
+  // scrolls (forwarded as wheel events); a TAP focuses the terminal so the
+  // keyboard comes up and you can type directly into it — keeping interactive
+  // input (slash-command autocomplete, menus) working.
+  const el = document.createElement("div");
+  el.id = "scrollCatch";
+  $("term").appendChild(el);
+
+  let startY = null, lastY = null, accum = 0, moved = false;
   const STEP = 16; // px of drag per wheel notch
+  const TAP_SLOP = 10; // px of movement before it counts as a drag, not a tap
   el.addEventListener("touchstart", (e) => {
-    if (e.touches.length === 1) { lastY = e.touches[0].clientY; accum = 0; }
-    else lastY = null;
+    if (e.touches.length === 1) {
+      startY = lastY = e.touches[0].clientY;
+      accum = 0;
+      moved = false;
+    } else {
+      startY = null;
+    }
   }, { passive: true });
   el.addEventListener(
     "touchmove",
     (e) => {
-      if (lastY === null || e.touches.length !== 1) return;
-      e.preventDefault(); // always own the drag so xterm/native never competes
+      if (startY === null || e.touches.length !== 1) return;
+      e.preventDefault();
       const y = e.touches[0].clientY;
+      if (Math.abs(y - startY) > TAP_SLOP) moved = true;
       accum += y - lastY;
       lastY = y;
       let notches = 0;
       while (accum >= STEP) { accum -= STEP; notches++; }   // drag down → older content
       while (accum <= -STEP) { accum += STEP; notches--; }
       if (!notches) return;
-      // Fixed position (pane center) so behavior doesn't vary by where you touch.
       const col = Math.max(1, Math.floor(term.cols / 2));
       const row = Math.max(1, Math.floor(term.rows / 2));
       const seq = `\x1b[<${notches > 0 ? 64 : 65};${col};${row}M`;
       wsSend({ type: "input", data: seq.repeat(Math.abs(notches)) });
     },
-    { passive: false, capture: true }
+    { passive: false }
   );
-  el.addEventListener("touchend", () => { lastY = null; }, { passive: true });
+  el.addEventListener("touchend", () => {
+    if (startY !== null && !moved && term.textarea) term.textarea.focus(); // tap → keyboard
+    startY = null;
+  }, { passive: false });
 })();
 
 // Only shrink the app for the keyboard when one is actually up; otherwise leave

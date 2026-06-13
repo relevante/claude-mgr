@@ -47,10 +47,11 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
 .sess .rename { flex: none; background: none; border: none; font-size: 15px; opacity: .55; padding: .2rem .1rem; }
 
 #termWrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-#term { flex: 1; min-height: 0; padding: .25rem; }
-/* We own all touch in the terminal (drag = scroll); stop iOS from selecting text
-   or doing native gestures over rendered content, which otherwise fights it. */
-#term, #term * { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+#term { flex: 1; min-height: 0; padding: .25rem; position: relative; }
+/* Transparent overlay that intercepts touch so a drag scrolls (and xterm can't
+   start a text selection over rendered content); a tap falls through in JS to
+   focus the terminal for direct typing. */
+#scrollCatch { position: absolute; inset: 0; z-index: 10; touch-action: none; -webkit-touch-callout: none; }
 
 #compose { display: flex; gap: .4rem; padding: .4rem; background: var(--panel); border-top: 1px solid var(--line); }
 #composeInput { flex: 1; min-width: 0; background: #11151f; color: var(--fg); border: 1px solid var(--line);
