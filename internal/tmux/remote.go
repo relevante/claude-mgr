@@ -13,13 +13,17 @@ func RemoteName() string { return Session + "-remote" }
 // window-size option is set to "latest" so size follows the most-recent client
 // rather than locking every shared window to the smallest one.
 func EnsureRemote() error {
-	if run("has-session", "-t", RemoteName()) == nil {
-		return nil
+	if run("has-session", "-t", RemoteName()) != nil {
+		if err := run("new-session", "-d", "-t", Session, "-s", RemoteName()); err != nil {
+			return err
+		}
 	}
-	if err := run("new-session", "-d", "-t", Session, "-s", RemoteName()); err != nil {
-		return err
-	}
-	// Best-effort isolation tweaks; an odd tmux build must not block attach.
+	// (Re)apply isolation/sizing tweaks every call — they were missed if the
+	// session predated this code. Best-effort; an odd tmux build must not block
+	// attach. aggressive-resize sizes each window to the smallest client ACTUALLY
+	// viewing it, so the phone (sole viewer of its s_<key> window) drives the
+	// size instead of being forced to the desktop's geometry.
+	_ = run("set-option", "-t", RemoteName(), "aggressive-resize", "on")
 	_ = run("set-option", "-t", RemoteName(), "window-size", "latest")
 	_ = run("set-option", "-t", RemoteName(), "destroy-unattached", "off")
 	return nil

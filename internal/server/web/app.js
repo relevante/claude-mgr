@@ -183,6 +183,7 @@ function startStream() {
 const term = new Terminal({
   fontSize: 13,
   cursorBlink: true,
+  scrollback: 8000,
   theme: { background: "#0b0e14", foreground: "#c8d3e0" },
 });
 const fit = new FitAddon.FitAddon();
@@ -244,58 +245,25 @@ term.onData((d) => {
   wsSend({ type: "input", data: d });
 });
 
-window.addEventListener("resize", sendResize);
+// Refit whenever the terminal's box actually changes (layout settle, rotation,
+// keyboard) so the tmux pane stays exactly matched to the visible area — no
+// stale row count, no blank strip below the content. Scrolling is left to
+// xterm's own native touch handling (smooth, with the scrollback above).
+const ro = new ResizeObserver(() => sendResize());
+ro.observe($("term"));
 
-// Track the visual viewport so the bottom key bar rides just above the iOS
-// keyboard (instead of being hidden behind it) and the terminal resizes to the
-// space actually visible. Falls back to the CSS 100dvh when unsupported.
-function fitViewport() {
-  const vv = window.visualViewport;
-  if (vv) {
-    $("app").style.height = vv.height + "px";
-    window.scrollTo(0, 0); // keep the app pinned; don't let the page scroll under the keyboard
-  }
-  sendResize();
-}
+// Only shrink the app for the keyboard when one is actually up; otherwise leave
+// the CSS height (100dvh) so the layout fills the real screen and the key bar
+// sits directly under the terminal.
 if (window.visualViewport) {
-  window.visualViewport.addEventListener("resize", fitViewport);
-  window.visualViewport.addEventListener("scroll", fitViewport);
-  fitViewport();
+  const onViewport = () => {
+    const vv = window.visualViewport;
+    const keyboardUp = window.innerHeight - vv.height > 120;
+    $("app").style.height = keyboardUp ? vv.height + "px" : "";
+  };
+  window.visualViewport.addEventListener("resize", onViewport);
+  window.visualViewport.addEventListener("scroll", onViewport);
 }
-
-// Touch-scroll the terminal: Claude's TUI uses the alternate screen, so xterm
-// has no local scrollback. Forward one-finger drags to tmux/Claude as SGR
-// mouse-wheel events (tmux mouse mode is on), which scrolls history the same way
-// the desktop mouse wheel does.
-(function enableTouchScroll() {
-  const el = $("term");
-  let lastY = null;
-  const STEP = 18; // px per wheel notch
-  el.addEventListener("touchstart", (e) => {
-    lastY = e.touches.length === 1 ? e.touches[0].clientY : null;
-  }, { passive: true });
-  el.addEventListener(
-    "touchmove",
-    (e) => {
-      if (lastY === null || e.touches.length !== 1) return;
-      const t = e.touches[0];
-      let dy = t.clientY - lastY;
-      if (Math.abs(dy) < STEP) return;
-      e.preventDefault(); // we're handling this drag as a scroll
-      const rect = el.getBoundingClientRect();
-      const col = Math.max(1, Math.min(term.cols, Math.ceil((t.clientX - rect.left) / (rect.width / term.cols))));
-      const row = Math.max(1, Math.min(term.rows, Math.ceil((t.clientY - rect.top) / (rect.height / term.rows))));
-      while (Math.abs(dy) >= STEP) {
-        const up = dy > 0; // drag down → scroll up, toward older content
-        dy += up ? -STEP : STEP;
-        wsSend({ type: "input", data: `\x1b[<${up ? 64 : 65};${col};${row}M` });
-      }
-      lastY = t.clientY;
-    },
-    { passive: false, capture: true }
-  );
-  el.addEventListener("touchend", () => { lastY = null; }, { passive: true });
-})();
 
 // --- on-screen key bar ------------------------------------------------------
 const decodeSeq = (s) =>
