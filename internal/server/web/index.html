@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0b0e14">
+<title>claude-mgr</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header id="bar">
+      <button id="listToggle" title="Sessions">☰</button>
+      <span id="title">claude-mgr</span>
+      <label id="waitingFilter"><input type="checkbox" id="waitingOnly"> waiting</label>
+    </header>
+
+    <section id="list" class="open">
+      <div id="groups"></div>
+    </section>
+
+    <section id="termWrap">
+      <div id="term"></div>
+      <div id="keybar">
+        <button data-seq="\x1b">Esc</button>
+        <button data-seq="\t">Tab</button>
+        <button id="ctrlBtn">Ctrl</button>
+        <button data-seq="\x1b[A">↑</button>
+        <button data-seq="\x1b[B">↓</button>
+        <button data-seq="\x1b[D">←</button>
+        <button data-seq="\x1b[C">→</button>
+        <button data-seq="\r">⏎</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

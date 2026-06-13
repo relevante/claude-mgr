@@ -147,6 +147,24 @@ func TestPinAndRenamePersist(t *testing.T) {
 	}
 }
 
+func TestStaticServedWithoutToken(t *testing.T) {
+	ts, _ := newTestServer(t)
+	for _, path := range []string{"/", "/app.js", "/style.css"} {
+		resp, err := http.Get(ts.URL + path) // no token on purpose
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: status %d, want 200 (static must not be gated)", path, resp.StatusCode)
+		}
+		if len(body) == 0 {
+			t.Fatalf("%s: empty body", path)
+		}
+	}
+}
+
 func TestUnknownAction(t *testing.T) {
 	ts, id := newTestServer(t)
 	if resp := post(t, ts, "/api/sessions/"+id+"/frobnicate"); resp.StatusCode != http.StatusBadRequest {
