@@ -58,6 +58,19 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
 
 #newBtn { font-size: 20px; line-height: 1; padding: .2rem .55rem; }
 
+/* Token entry (iOS standalone first launch / rejected token) */
+#tokenGate { position: fixed; inset: 0; background: var(--bg); z-index: 100;
+  display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
+#tokenGate[hidden] { display: none; }
+.gate-box { width: 100%; max-width: 340px; }
+.gate-title { font-size: 18px; font-weight: 600; margin-bottom: .4rem; }
+.gate-sub { color: var(--dim); font-size: 12px; margin-bottom: 1rem; }
+.gate-sub code { color: var(--fg); }
+#tokenInput { width: 100%; background: #11151f; color: var(--fg); border: 1px solid var(--line);
+  border-radius: 8px; padding: .7rem; font-size: 16px; margin-bottom: .7rem; }
+#tokenSave { width: 100%; background: var(--accent); color: #04210f; border: none;
+  border-radius: 8px; padding: .7rem; font-size: 16px; font-weight: 600; }
+
 /* New-session bottom sheet */
 #modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex;
   align-items: flex-end; z-index: 50; }

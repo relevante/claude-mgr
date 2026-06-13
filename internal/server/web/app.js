@@ -3,16 +3,26 @@
 // taps) replaces the tmux keybindings; the terminal is a real xterm.js viewport
 // bridged to a tmux client over a WebSocket.
 
-// --- auth: token comes in the page URL once, then persists locally ----------
-const url = new URL(location.href);
-let token = url.searchParams.get("token");
-if (token) {
-  localStorage.setItem("cmgr_token", token);
-  url.searchParams.delete("token");
-  history.replaceState(null, "", url.pathname);
-} else {
-  token = localStorage.getItem("cmgr_token") || "";
-}
+// --- auth ------------------------------------------------------------------
+// The token may arrive in the page URL (?token=…) — used once, then stripped
+// for a clean URL and persisted to localStorage. iOS home-screen web apps run
+// in a SEPARATE storage container with no token in either place on first launch,
+// so when none is found we prompt for it once; it then persists in that app's
+// own storage. (We can't bake it into a manifest — that file is unauthenticated
+// and would leak the token to anyone on the network.)
+let token = "";
+(function initToken() {
+  const u = new URL(location.href);
+  const t = u.searchParams.get("token");
+  if (t) {
+    token = t;
+    localStorage.setItem("cmgr_token", t);
+    u.searchParams.delete("token");
+    history.replaceState(null, "", u.pathname + u.hash); // keep the clean URL
+  } else {
+    token = localStorage.getItem("cmgr_token") || "";
+  }
+})();
 
 const api = (path, opts = {}) =>
   fetch(path, {
@@ -127,8 +137,35 @@ async function renameSession(s) {
 async function loadSessions() {
   try {
     const r = await api("/api/sessions");
+    if (r.status === 401) {
+      showTokenPrompt();
+      return;
+    }
     if (r.ok) render(await r.json());
   } catch (e) {}
+}
+
+// showTokenPrompt asks for the token when none is stored (iOS standalone first
+// launch) or a stored one is rejected.
+function showTokenPrompt() {
+  const gate = $("tokenGate");
+  if (!gate.hidden) return;
+  gate.hidden = false;
+  const input = $("tokenInput");
+  input.value = "";
+  input.focus();
+  const submit = () => {
+    const v = input.value.trim();
+    if (!v) return;
+    token = v;
+    localStorage.setItem("cmgr_token", v);
+    gate.hidden = true;
+    start();
+  };
+  $("tokenSave").onclick = submit;
+  input.onkeydown = (e) => {
+    if (e.key === "Enter") submit();
+  };
 }
 
 // Live updates over SSE (EventSource can't set headers → token in the query).
@@ -281,5 +318,9 @@ async function createSession(cwd, label) {
 }
 
 // --- go ---------------------------------------------------------------------
-loadSessions();
-startStream();
+function start() {
+  loadSessions();
+  startStream();
+}
+if (token) start();
+else showTokenPrompt();

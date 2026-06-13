@@ -22,6 +22,15 @@
       <button id="newBtn" title="New session">＋</button>
     </header>
 
+    <div id="tokenGate" hidden>
+      <div class="gate-box">
+        <div class="gate-title">Enter access token</div>
+        <div class="gate-sub">From <code>~/.config/claude-mgr/serve-token</code> on your Mac. Stored on this device — you'll only enter it once.</div>
+        <input id="tokenInput" type="text" inputmode="text" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="token">
+        <button id="tokenSave">Save</button>
+      </div>
+    </div>
+
     <div id="modal" hidden>
       <div class="sheet">
         <div class="sheet-head">
