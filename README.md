@@ -128,17 +128,48 @@ State lives under `~/.config/claude-mgr/`: `index.json` (session cache),
 `overlay.json` (names/pins/archives), `workspace.json` (open threads). Nothing is
 written directly into your Claude or Codex session data.
 
+## Remote access (phone / browser)
+
+`claude-mgr` can serve a mobile web UI so you can monitor and drive your sessions
+from your phone — a touch session list (with the rail's pin/rename/archive/kill
+actions) plus a real terminal for full interactive control of the focused agent.
+
+```sh
+claude-mgr --serve 127.0.0.1:8787      # launch the dashboard AND the web server
+```
+
+The server runs **in the controller process** (sharing its one overlay, so it
+can't race the desktop), and only when you pass `--serve` — without it, nothing
+changes. Reach it over **[Tailscale](https://tailscale.com)**: with your Mac and
+phone on the same tailnet, bind to the tailnet address (e.g.
+`--serve 100.x.y.z:8787`) and open `http://<mac>:8787/?token=<token>` on the
+phone. Do **not** expose the port to the public internet.
+
+- **Auth:** a bearer token, from `CLAUDE_MGR_SERVE_TOKEN` or auto-generated to
+  `~/.config/claude-mgr/serve-token` (the page URL carries it once, then the
+  browser remembers it).
+- **How it works:** the phone attaches to a grouped tmux session
+  (`<session>-remote`) that shares the dashboard's parked windows but keeps its
+  own selected window and size, so navigating on the phone doesn't yank the
+  desktop. Opening a session remotely *parks* it (never steals the desktop's
+  pane); a session already shown on the desktop must be parked there first.
+- The web UI loads xterm.js from a CDN, so the phone needs internet (the rest is
+  served from your Mac). Errors go to `~/.config/claude-mgr/serve.log` (never the
+  TUI). Already running a dashboard? `--serve` takes effect on a fresh launch
+  (`Q`, then relaunch with the flag).
+
 ## Project layout
 
 ```
-main.go                 launcher + __controller subcommand + --dump
+main.go                 launcher + __controller subcommand + --dump + --serve
 internal/index/         session discovery, tail-read/sqlite, (path,mtime,size) cache
-internal/tmux/          tmux CLI wrapper: split, park/join, zoom, capture, keys
+internal/tmux/          tmux CLI wrapper: split, park/join, zoom, capture, keys, remote group
 internal/status/        classify pane content → working / permission / idle
 internal/live/          map running CLI pids → sessions (Claude registry, Codex lsof)
 internal/overlay/       custom names, pins, archives
 internal/workspace/     open-thread persistence + restore
 internal/ui/            Bubble Tea rail: list, search, rename, new-session, status
+internal/server/        --serve: HTTP/SSE API, WebSocket↔PTY terminal, embedded web UI
 ```
 
 See `spike/FINDINGS.md` and `spike/CODEX-FINDINGS.md` for the verified
