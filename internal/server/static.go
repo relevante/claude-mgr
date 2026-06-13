@@ -20,5 +20,11 @@ func (s *Server) staticHandler() http.Handler {
 			http.Error(w, "frontend unavailable", http.StatusInternalServerError)
 		})
 	}
-	return http.FileServer(http.FS(sub))
+	fileServer := http.FileServer(http.FS(sub))
+	// Assets are embedded and change on every redeploy; tell the browser to
+	// always revalidate so the phone never runs a stale app.js after an update.
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		fileServer.ServeHTTP(w, r)
+	})
 }

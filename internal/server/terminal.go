@@ -15,11 +15,15 @@ import (
 	"claude-mgr/internal/tmux"
 )
 
-// openSession makes a session viewable remotely by ensuring it has a parked tmux
-// window (s_<key>), using RestoreParked — NOT ShowSession, which would hijack the
-// desktop's right pane. It refuses to resume a session that is already live but
-// unparked (i.e. shown on the desktop or running in an external terminal), since
-// a second `--resume` of the same id would spawn a duplicate process.
+// openSession makes a session viewable remotely as a single clean pane:
+//   - already parked → nothing to do.
+//   - the one currently shown on the desktop → break it out of the main window
+//     into its own parked window (the process keeps running; the desktop rail
+//     goes full-width), so the phone sees just the agent, not the whole split.
+//   - live but running OUTSIDE our dashboard (a separate terminal) → refuse; we
+//     can't view that pane and resuming would spawn a duplicate process.
+//   - dormant → resume it fresh into a parked window (RestoreParked, never
+//     ShowSession, so the desktop's pane is untouched).
 func (s *Server) openSession(id string) error {
 	m, ok := s.findMeta(id)
 	if !ok {
@@ -27,10 +31,13 @@ func (s *Server) openSession(id string) error {
 	}
 	key := tmux.SessionKey(m.SessionID, m.AppName())
 	if tmux.ParkedExists(key) {
-		return nil // already viewable
+		return nil
+	}
+	if s.shownSessionID() == m.SessionID {
+		return tmux.ParkShown(key)
 	}
 	if s.isLiveElsewhere(m) {
-		return fmt.Errorf("session is active on the desktop; park it there before opening remotely")
+		return fmt.Errorf("session is running outside the dashboard; can't view it remotely")
 	}
 	tmux.RestoreParked([]tmux.SessionRef{{
 		ID:  m.SessionID,
@@ -38,6 +45,20 @@ func (s *Server) openSession(id string) error {
 		App: m.AppName(),
 	}})
 	return nil
+}
+
+// shownSessionID returns the session id currently displayed in the desktop's
+// right pane, or "" if none. Works because the server runs in the controller
+// process, so tmux layout detection (which keys off $TMUX_PANE) is valid here.
+func (s *Server) shownSessionID() string {
+	pid, ok := tmux.SessionPanePID()
+	if !ok {
+		return ""
+	}
+	if id := live.SessionForPID(s.store.ProjectsDir, pid); id != "" {
+		return id
+	}
+	return live.CodexSessionForPID(pid)
 }
 
 func (s *Server) isLiveElsewhere(m index.SessionMeta) bool {

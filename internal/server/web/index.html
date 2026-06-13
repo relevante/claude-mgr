@@ -14,7 +14,11 @@
     <header id="bar">
       <button id="listToggle" title="Sessions">☰</button>
       <span id="title">claude-mgr</span>
-      <label id="waitingFilter"><input type="checkbox" id="waitingOnly"> waiting</label>
+      <div id="filter">
+        <button data-f="open" class="on">Open</button>
+        <button data-f="waiting">Waiting</button>
+        <button data-f="all">All</button>
+      </div>
     </header>
 
     <section id="list" class="open">

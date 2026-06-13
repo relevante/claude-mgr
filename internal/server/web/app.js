@@ -25,10 +25,24 @@ const $ = (id) => document.getElementById(id);
 const groupsEl = $("groups");
 const listEl = $("list");
 const titleEl = $("title");
-const waitingOnly = $("waitingOnly");
-
 $("listToggle").onclick = () => listEl.classList.toggle("open");
-waitingOnly.onchange = () => render(lastGroups);
+
+// Filter: "open" (live in claude-mgr, the default, matching the desktop's
+// active-only view) / "waiting" (needs you) / "all".
+let filter = "open";
+for (const b of document.querySelectorAll("#filter button")) {
+  b.onclick = () => {
+    filter = b.dataset.f;
+    for (const o of document.querySelectorAll("#filter button")) o.classList.toggle("on", o === b);
+    render(lastGroups);
+  };
+}
+function passesFilter(s) {
+  if (s.archived) return false;
+  if (filter === "open") return s.live;
+  if (filter === "waiting") return s.status === "waiting" || s.status === "permission";
+  return true; // all (minus archived)
+}
 
 // --- session list -----------------------------------------------------------
 let lastGroups = [];
@@ -37,12 +51,9 @@ let activeId = null;
 function render(groups) {
   lastGroups = groups || [];
   groupsEl.innerHTML = "";
-  const wantWaiting = waitingOnly.checked;
   let shown = 0;
   for (const g of lastGroups) {
-    const sessions = g.sessions.filter(
-      (s) => !s.archived && (!wantWaiting || s.status === "waiting" || s.status === "permission")
-    );
+    const sessions = g.sessions.filter(passesFilter);
     if (!sessions.length) continue;
     const label = document.createElement("div");
     label.className = "group-label";
@@ -56,7 +67,9 @@ function render(groups) {
   if (!shown) {
     const e = document.createElement("div");
     e.className = "empty";
-    e.textContent = wantWaiting ? "Nothing waiting on you." : "No sessions.";
+    e.textContent =
+      filter === "waiting" ? "Nothing waiting on you." :
+      filter === "open" ? "No sessions open in claude-mgr." : "No sessions.";
     groupsEl.appendChild(e);
   }
 }
