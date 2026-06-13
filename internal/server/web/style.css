@@ -41,12 +41,10 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
 .sess.waiting .dot, .sess.permission .dot { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
 .sess.shell .dot { background: #54b0e0; }
 .sess .name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sess .name small { color: var(--dim); display: block; font-size: 11px; }
-.sess .app { font-size: 10px; color: var(--dim); border: 1px solid var(--line);
-  border-radius: 4px; padding: 0 .3rem; }
+.sess .name small { color: var(--warn); display: block; font-size: 11px; }
+.sess .age { flex: none; color: var(--dim); font-size: 11px; white-space: nowrap; }
 .sess.pinned .name::before { content: "📌 "; }
-.sess .acts { display: flex; gap: .3rem; }
-.sess .acts button { background: none; border: none; font-size: 15px; opacity: .7; padding: .2rem; }
+.sess .rename { flex: none; background: none; border: none; font-size: 15px; opacity: .55; padding: .2rem .1rem; }
 
 #termWrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 #term { flex: 1; min-height: 0; padding: .25rem; }

@@ -80,47 +80,47 @@ function sessionRow(s) {
   row.innerHTML =
     `<span class="dot"></span>` +
     `<span class="name"></span>` +
-    `<span class="app"></span>` +
-    `<span class="acts">` +
-    `<button data-act="pin" title="Pin">📌</button>` +
-    `<button data-act="rename" title="Rename">✏️</button>` +
-    `<button data-act="archive" title="Archive">🗄️</button>` +
-    `<button data-act="kill" title="Kill">⛔️</button>` +
-    `</span>`;
+    `<span class="age"></span>` +
+    `<button class="rename" title="Rename">✏️</button>`;
   const name = row.querySelector(".name");
   name.textContent = s.name || s.id.slice(0, 8);
-  if (s.live && s.status !== "idle") {
+  // Only the "needs you" case gets a sub-line; the dot color carries the rest.
+  if (s.status === "waiting" || s.status === "permission") {
     const sub = document.createElement("small");
-    sub.textContent = s.status === "waiting" || s.status === "permission" ? "your turn" : s.status;
+    sub.textContent = "your turn";
     name.appendChild(sub);
   }
-  row.querySelector(".app").textContent = s.app;
+  row.querySelector(".age").textContent = relTime(s.lastActive);
   name.onclick = () => selectSession(s.id);
   row.querySelector(".dot").onclick = () => selectSession(s.id);
-  for (const b of row.querySelectorAll(".acts button")) {
-    b.onclick = (e) => {
-      e.stopPropagation();
-      doAction(s, b.dataset.act);
-    };
-  }
+  row.querySelector(".rename").onclick = (e) => {
+    e.stopPropagation();
+    renameSession(s);
+  };
   return row;
 }
 
-async function doAction(s, act) {
-  if (act === "rename") {
-    const name = prompt("Rename session", s.name || "");
-    if (name === null) return;
-    await api(`/api/sessions/${s.id}/rename`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
-  } else if (act === "kill") {
-    if (!confirm("Kill this session's process?")) return;
-    await api(`/api/sessions/${s.id}/kill`, { method: "POST" });
-  } else {
-    await api(`/api/sessions/${s.id}/${act}`, { method: "POST" });
-  }
+// relTime mirrors the desktop's index.RelTime so ages read the same on both.
+function relTime(unixSec) {
+  if (!unixSec) return "—";
+  const d = Date.now() / 1000 - unixSec;
+  if (d < 0) return "now";
+  if (d < 60) return "just now";
+  if (d < 3600) return Math.floor(d / 60) + "m ago";
+  if (d < 86400) return Math.floor(d / 3600) + "h ago";
+  if (d < 172800) return "yesterday";
+  if (d < 604800) return Math.floor(d / 86400) + "d ago";
+  return new Date(unixSec * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+async function renameSession(s) {
+  const name = prompt("Rename session", s.name || "");
+  if (name === null) return;
+  await api(`/api/sessions/${s.id}/rename`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
   loadSessions();
 }
 
