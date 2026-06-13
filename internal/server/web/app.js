@@ -326,6 +326,11 @@ $("compose").addEventListener("submit", (e) => {
   input.value = "";
   input.focus();
 });
+$("composeClear").onclick = () => {
+  const input = $("composeInput");
+  input.value = "";
+  input.focus();
+};
 
 // --- new session ------------------------------------------------------------
 let newApp = "claude";
