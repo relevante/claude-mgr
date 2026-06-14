@@ -179,6 +179,22 @@ Tailscale Funnel.
   Already running a dashboard? `--serve` takes effect on a fresh launch (`Q`, then
   relaunch with the flag), or hot-swap the controller pane to pick it up.
 
+**Keeping it reachable (sleep / power)**
+
+The server is only up while the Mac is awake. When the Mac sleeps, the dashboard,
+the server, and the agents are all *suspended* (not killed) and the Tailscale node
+drops offline, so the phone can't connect; on wake everything resumes and sessions
+are intact (they persist on disk regardless) — just reload the page to reconnect.
+Long-running agent work pauses for the duration of sleep.
+
+The gotcha on Apple Silicon laptops: **closing the lid forces sleep even with
+`caffeinate` running**, unless an external display is attached (clamshell mode). To
+stay reachable with the lid closed, either run in clamshell (power + an external
+display, even a dummy plug), or `sudo pmset -a disablesleep 1` (revert with
+`disablesleep 0`; keep the Mac ventilated). Lid open on power just works. Power Nap
+and Wake-on-LAN don't help here — Power Nap won't serve inbound connections, and
+waking a sleeping Mac over pure Tailscale needs another always-on device on its LAN.
+
 ## Project layout
 
 ```
