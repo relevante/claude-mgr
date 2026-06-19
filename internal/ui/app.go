@@ -24,9 +24,12 @@ import (
 	"claude-mgr/internal/workspace"
 )
 
-// maxRestore caps how many sessions are relaunched on startup, to avoid a
-// thundering herd of claude processes.
-const maxRestore = 20
+// maxRestore caps how many sessions are RELAUNCHED on a cold startup, to avoid
+// a thundering herd of agent processes. It bounds process spawning only — every
+// saved session is still tracked in openIDs and persisted, so a large workspace
+// is never silently shrunk by this cap (the excess just launches lazily when
+// first opened).
+const maxRestore = 40
 
 // inputMode is the controller's interaction mode.
 type inputMode int
@@ -216,6 +219,7 @@ type statusMsg struct {
 	resume      map[string]string // session key → paneID showing the resume summary/full prompt
 	shownActual string            // the shown pane's current session id (may differ after /clear)
 	shownApp    string            // app for shownActual
+	polledShown string            // m.shown as of when this poll was dispatched (staleness guard)
 	degraded    bool              // the parked-pane listing failed; pane data is incomplete
 	focused     bool              // our terminal app is frontmost (for the chime)
 }
@@ -330,7 +334,7 @@ func pollStatus(store *index.Store, shown string, apps map[string]string) tea.Cm
 			}
 		}
 		return statusMsg{byID8: byID8, external: external, resume: resume, shownActual: shownActual,
-			shownApp: shownApp, degraded: parkedErr != nil, focused: focus.Focused(tmux.Socket)}
+			shownApp: shownApp, polledShown: shown, degraded: parkedErr != nil, focused: focus.Focused(tmux.Socket)}
 	}
 }
 
@@ -412,7 +416,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.markCompleted(msg.byID8) // background working→idle = "done, go check" (green)
 		m.statusByID8 = msg.byID8
 		m.externalStatus = msg.external
-		m.adoptShownID(msg.shownActual, msg.shownApp) // /clear changed the shown session's id
+		// Only let a poll drive shown-adoption if the shown session didn't change
+		// while the poll was in flight. Otherwise a poll dispatched before a
+		// session switch arrives after it carrying the OLD pane's id, and
+		// adoptShownID would "adopt" the previous session and delete the
+		// just-opened one from openIDs — the live churn that drops active sessions.
+		if pollStillCurrent(msg.polledShown, m.shown) {
+			m.adoptShownID(msg.shownActual, msg.shownApp) // /clear changed the shown session's id
+		}
 		answer := m.autoAnswerResume(msg.resume)      // pick "full session as-is"
 		reaped := false
 		if !msg.degraded {
@@ -759,6 +770,14 @@ func shouldAdoptShown(actual, shown string, pendingNew bool) bool {
 	return actual != "" && actual != shown && !pendingNew
 }
 
+// pollStillCurrent reports whether a status poll's view of the shown session is
+// still valid — i.e. the shown session didn't change between the poll being
+// dispatched and its result being processed. Shown-adoption MUST be gated on
+// this: a poll dispatched before a session switch arrives afterward carrying the
+// previous pane's id, and acting on it would adopt the old session and delete
+// the just-opened one from openIDs.
+func pollStillCurrent(polledShown, shown string) bool { return polledShown == shown }
+
 // adoptShownID re-points tracking to the session the shown pane is really
 // running (e.g. /clear started a fresh id in the same process, or we lost track
 // of it). The old id, if any, becomes a normal dormant entry — no duplicate.
@@ -1032,6 +1051,46 @@ func (m *Model) appMap() map[string]string {
 	return apps
 }
 
+// restorePlan is the decision output of planRestore: which saved sessions to
+// track (persist in openIDs), which are already alive in our tmux (mark
+// seenLive, don't relaunch), and which to actually relaunch.
+type restorePlan struct {
+	track    []string          // add to openIDs — EVERY on-disk saved session
+	seen     []string          // already live in our tmux (respawn survivors)
+	relaunch []tmux.SessionRef // the subset to spawn now (capped)
+}
+
+// planRestore decides, purely, what to do with each saved session. The core
+// invariant: every session still on disk is TRACKED (so the persisted workspace
+// never shrinks); the cap and the live-elsewhere checks only gate whether we
+// spawn a process. A session alive in our own tmux (ours[key], a respawn
+// survivor) is adopted, not relaunched, and never confused with one running in
+// another terminal.
+func planRestore(saved workspace.State, byID map[string]index.SessionMeta, ours, liveElsewhere, codexElsewhere map[string]bool, cap int) restorePlan {
+	var p restorePlan
+	for _, id := range saved.Open {
+		s, ok := byID[id]
+		if !ok || s.Cwd == "" {
+			continue // genuinely gone from disk — the only reason to drop a session
+		}
+		app := s.AppName()
+		if savedApp := saved.App(id); savedApp != index.AppClaude && app == index.AppClaude {
+			app = normalizeApp(savedApp)
+		}
+		p.track = append(p.track, id)
+		key := tmux.SessionKey(id, app)
+		switch {
+		case ours[key]:
+			p.seen = append(p.seen, id) // running in our tmux already
+		case app == index.AppClaude && liveElsewhere[id], app == index.AppCodex && codexElsewhere[id]:
+			// running in another terminal: track but don't double-resume
+		case len(p.relaunch) < cap:
+			p.relaunch = append(p.relaunch, tmux.SessionRef{ID: id, Cwd: s.ResumeCwd(), App: app})
+		}
+	}
+	return p
+}
+
 // restoreWorkspace relaunches the sessions saved from a previous run as parked
 // windows and shows the last-shown one. Runs once, after the first scan.
 func (m *Model) restoreWorkspace() tea.Cmd {
@@ -1039,40 +1098,58 @@ func (m *Model) restoreWorkspace() tea.Cmd {
 	if len(saved.Open) == 0 {
 		return nil
 	}
+	if m.seenLive == nil {
+		m.seenLive = map[string]bool{}
+	}
 	byID := map[string]index.SessionMeta{}
 	for _, s := range m.all {
 		byID[s.SessionID] = s
+	}
+	// Sessions already alive in OUR tmux survive a controller hot-restart
+	// (respawn-pane). They MUST be recognized as ours, not mistaken for "live in
+	// another terminal" — otherwise restore skips them, openIDs ends up empty,
+	// and the next save wipes the whole workspace. Keyed by tmux session key.
+	ours := map[string]bool{}
+	if parked, err := tmux.ParkedPanes(); err == nil {
+		for _, p := range parked {
+			ours[p.ID8] = true
+		}
+	}
+	if pid, ok := tmux.SessionPanePID(); ok { // the shown pane (in main, not parked)
+		if id := live.SessionForPID(m.store.ProjectsDir, pid); id != "" {
+			ours[tmux.SessionKey(id, index.AppClaude)] = true
+		} else if id := live.CodexSessionForPID(pid); id != "" {
+			ours[tmux.SessionKey(id, index.AppCodex)] = true
+		}
 	}
 	// Don't re-resume a thread that's already running in another terminal —
 	// two processes on one session id corrupt the transcript.
 	liveElsewhere := live.Sessions(m.store.ProjectsDir)
 	codexElsewhere := live.CodexSessions()
-	var refs []tmux.SessionRef
-	for _, id := range saved.Open {
-		s, ok := byID[id]
-		if !ok || s.Cwd == "" {
-			continue // gone from disk
-		}
-		app := s.AppName()
-		if app == index.AppClaude && liveElsewhere[id] {
-			continue // already live elsewhere
-		}
-		if app == index.AppCodex && codexElsewhere[id] {
-			continue // already live elsewhere
-		}
-		if savedApp := saved.App(id); savedApp != index.AppClaude && app == index.AppClaude {
-			app = normalizeApp(savedApp)
-		}
-		refs = append(refs, tmux.SessionRef{ID: id, Cwd: s.ResumeCwd(), App: app})
+	plan := planRestore(saved, byID, ours, liveElsewhere, codexElsewhere, maxRestore)
+	for _, id := range plan.track {
 		m.openIDs[id] = true
-		if len(refs) >= maxRestore {
-			break
+	}
+	for _, id := range plan.seen {
+		m.seenLive[id] = true
+	}
+	refs := plan.relaunch
+	// Self-heal: a session alive in our own tmux is open, full stop — even if the
+	// saved workspace didn't list it (e.g. an earlier bug dropped it while its
+	// window kept running). The live windows are ground truth; adopt any we can
+	// map back to a known session id, so a damaged workspace.json is repaired on
+	// the next launch instead of leaking those sessions.
+	keyToID := map[string]string{}
+	for _, s := range m.all {
+		keyToID[tmux.SessionKey(s.SessionID, s.AppName())] = s.SessionID
+	}
+	for key := range ours {
+		if id := keyToID[key]; id != "" {
+			m.openIDs[id] = true
+			m.seenLive[id] = true
 		}
 	}
-	if len(refs) == 0 {
-		return nil
-	}
-	tmux.RestoreParked(refs)
+	tmux.RestoreParked(refs) // no-op on empty (e.g. a pure respawn where all are ours)
 
 	// A controller hot-restart (respawn-pane) leaves the previously-shown
 	// session's pane alive in the main window. ShowSession would treat it as an
@@ -1091,6 +1168,9 @@ func (m *Model) restoreWorkspace() tea.Cmd {
 
 	showID := saved.Shown
 	if _, ok := byID[showID]; !ok {
+		if len(refs) == 0 {
+			return nil // nothing relaunched and no shown pane to adopt
+		}
 		showID = refs[0].ID
 	}
 	showSession := byID[showID]

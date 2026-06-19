@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"claude-mgr/internal/index"
+	"claude-mgr/internal/tmux"
+	"claude-mgr/internal/workspace"
 )
 
 // Reaping is time-based: a session missing from the pane snapshot is only
@@ -92,5 +94,81 @@ func TestAppForIDSticksAcrossScanGaps(t *testing.T) {
 	// Unknown ids still default to claude.
 	if got := m.appForID("unknown"); got != index.AppClaude {
 		t.Fatalf("appForID(unknown)=%q, want claude", got)
+	}
+}
+
+// planRestore must TRACK every on-disk saved session (so the persisted
+// workspace never shrinks), while the cap and live-elsewhere checks only gate
+// relaunching. Sessions alive in our own tmux (respawn survivors) are adopted,
+// not relaunched, and never mistaken for another terminal.
+func TestPlanRestore(t *testing.T) {
+	meta := func(id string) index.SessionMeta {
+		return index.SessionMeta{SessionID: id, Cwd: "/w/" + id, App: index.AppClaude}
+	}
+	saved := workspace.State{Open: []string{"aaaa", "bbbb", "cccc", "dddd", "gone"}}
+	byID := map[string]index.SessionMeta{
+		"aaaa": meta("aaaa"), "bbbb": meta("bbbb"),
+		"cccc": meta("cccc"), "dddd": meta("dddd"),
+		// "gone" intentionally absent from disk
+	}
+	ours := map[string]bool{tmux.SessionKey("aaaa", index.AppClaude): true}   // respawn survivor
+	liveElsewhere := map[string]bool{"bbbb": true}                            // another terminal
+	p := planRestore(saved, byID, ours, liveElsewhere, map[string]bool{}, 40)
+
+	// Every on-disk saved session is tracked; "gone" is dropped.
+	gotTrack := map[string]bool{}
+	for _, id := range p.track {
+		gotTrack[id] = true
+	}
+	for _, id := range []string{"aaaa", "bbbb", "cccc", "dddd"} {
+		if !gotTrack[id] {
+			t.Errorf("track missing %s", id)
+		}
+	}
+	if gotTrack["gone"] {
+		t.Error("tracked a session that's gone from disk")
+	}
+	// aaaa (ours) is marked seen, not relaunched.
+	if len(p.seen) != 1 || p.seen[0] != "aaaa" {
+		t.Errorf("seen=%v, want [aaaa]", p.seen)
+	}
+	// Relaunch = cccc and dddd only (aaaa is ours, bbbb is elsewhere).
+	got := map[string]bool{}
+	for _, r := range p.relaunch {
+		got[r.ID] = true
+	}
+	if got["aaaa"] || got["bbbb"] || !got["cccc"] || !got["dddd"] {
+		t.Errorf("relaunch=%v, want {cccc,dddd}", got)
+	}
+}
+
+// The cap bounds relaunches but never tracking: with more saved sessions than
+// the cap, all are still tracked (persisted), only the cap-count relaunch.
+func TestPlanRestoreCapBoundsRelaunchNotTracking(t *testing.T) {
+	saved := workspace.State{}
+	byID := map[string]index.SessionMeta{}
+	for i := 0; i < 5; i++ {
+		id := string(rune('a'+i)) + "xxx"
+		saved.Open = append(saved.Open, id)
+		byID[id] = index.SessionMeta{SessionID: id, Cwd: "/w/" + id, App: index.AppClaude}
+	}
+	p := planRestore(saved, byID, map[string]bool{}, map[string]bool{}, map[string]bool{}, 2)
+	if len(p.track) != 5 {
+		t.Fatalf("track=%d, want all 5 saved sessions", len(p.track))
+	}
+	if len(p.relaunch) != 2 {
+		t.Fatalf("relaunch=%d, want cap of 2", len(p.relaunch))
+	}
+}
+
+func TestPollStillCurrent(t *testing.T) {
+	if !pollStillCurrent("X", "X") {
+		t.Error("same shown should be current")
+	}
+	if pollStillCurrent("X", "Y") {
+		t.Error("a poll from before a switch (X) must be stale once shown is Y")
+	}
+	if !pollStillCurrent("", "") {
+		t.Error("empty/empty (orphan recovery) should be current")
 	}
 }
