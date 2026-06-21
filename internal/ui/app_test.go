@@ -5,7 +5,10 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"claude-mgr/internal/index"
+	"claude-mgr/internal/overlay"
 	"claude-mgr/internal/tmux"
 	"claude-mgr/internal/workspace"
 )
@@ -170,5 +173,33 @@ func TestPollStillCurrent(t *testing.T) {
 	}
 	if !pollStillCurrent("", "") {
 		t.Error("empty/empty (orphan recovery) should be current")
+	}
+}
+
+// Archive must require the Ctrl+A chord; a bare 'a' must never archive (it has
+// silently hidden important sessions twice).
+func TestArchiveRequiresChord(t *testing.T) {
+	newM := func() Model {
+		m := Model{ov: overlay.Load(filepath.Join(t.TempDir(), "o.json"))}
+		m.rows = []row{{kind: rowSession, sess: index.SessionMeta{SessionID: "s1"}}}
+		m.cursor = 0
+		return m
+	}
+
+	// Bare 'a' does not archive.
+	m := newM()
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	if m.ov.IsArchived("s1") {
+		t.Fatal("bare 'a' archived the session — it must not")
+	}
+
+	// Ctrl+A archives, and again un-archives.
+	m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlA})
+	if !m.ov.IsArchived("s1") {
+		t.Fatal("Ctrl+A did not archive")
+	}
+	m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlA})
+	if m.ov.IsArchived("s1") {
+		t.Fatal("Ctrl+A did not un-archive on second press")
 	}
 }

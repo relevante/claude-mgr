@@ -554,20 +554,26 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			_ = m.ov.TogglePinned(s.SessionID)
 			m.rebuild()
 		}
-	case "a":
+	case "ctrl+a":
+		// Archive is a deliberate chord, not a bare key: a stray 'a' must never
+		// hide a session (it has, twice). Ctrl+A toggles; A reveals archived.
 		if s, ok := m.currentSession(); ok {
 			_ = m.ov.ToggleArchived(s.SessionID)
-			// Flash the result: archiving hides the row instantly, so without
-			// feedback an accidental 'a' looks like the session vanished.
 			var c tea.Cmd
 			if m.ov.IsArchived(s.SessionID) {
-				m.status, c = flash("archived: " + m.displayName(s) + " · A shows · a undoes")
+				m.status, c = flash("archived: " + m.displayName(s) + " · A shows · ⌃A undoes")
 			} else {
 				m.status, c = flash("unarchived: " + m.displayName(s))
 			}
 			m.rebuild()
 			return m, c
 		}
+	case "a":
+		// Bare 'a' no longer archives — catch the old reflex and point at the
+		// chord instead of silently doing nothing.
+		var c tea.Cmd
+		m.status, c = flash("archive is now ⌃A (Ctrl+A) · A shows archived")
+		return m, c
 	case "A":
 		m.showArchived = !m.showArchived
 		m.rebuild()
